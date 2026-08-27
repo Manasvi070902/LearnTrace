@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import analyzeRouter from './routes/analyze';
 
 dotenv.config();
 
@@ -15,6 +16,10 @@ app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok' });
 });
 
+// Analyze Endpoints
+app.use('/api/analyze', analyzeRouter);
+
 app.listen(PORT, () => {
   console.log(`[LearnTrace Server] Running on http://localhost:${PORT}`);
 });
+
