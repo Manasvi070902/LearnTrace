@@ -65,17 +65,18 @@ if (trace.gapDetected) { renderHeatmap(); updateMetrics(); }`}
           <DataInspectionView data={analysisResult} onReset={handleReset} />
         ) : (
           <div className="hero-section">
-            <p className="tagline">
-              AI that reveals the gap between what you teach and what your audience understands.
-            </p>
+            <p className="tagline">AI-powered learning observability for educational content.</p>
             <h1 className="main-heading">Where is learning breaking down?</h1>
+            <p className="hero-description">
+              Analyze learner conversations to uncover recurring questions, learning friction, and concepts that need clearer explanation.
+            </p>
 
             <form onSubmit={handleSubmit} className="input-form">
               <input
                 type="text"
                 id="youtube-url-input"
                 className="url-input"
-                placeholder="Paste YouTube video URL (e.g. https://www.youtube.com/watch?v=...)"
+                placeholder="Paste a YouTube video URL"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 disabled={loading}
@@ -107,39 +108,34 @@ if (trace.gapDetected) { renderHeatmap(); updateMetrics(); }`}
             <div className="features-badges">
               <span className="feature-badge">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                  <circle cx="12" cy="12" r="3"></circle>
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                 </svg>
-                View-by-view analysis
+                Learner Question Discovery
               </span>
               <span className="feature-badge">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="6" cy="6" r="3"></circle>
-                  <circle cx="18" cy="18" r="3"></circle>
-                  <line x1="8.5" y1="8.5" x2="15.5" y2="15.5"></line>
-                  <circle cx="18" cy="6" r="2"></circle>
+                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                  <line x1="12" y1="9" x2="12" y2="13"></line>
+                  <line x1="12" y1="17" x2="12.01" y2="17"></line>
                 </svg>
-                Concept-by-concept alignment
+                Learning Friction Mapping
               </span>
               <span className="feature-badge">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"></path>
+                  <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
                 </svg>
-                Retention Heatmap
+                Evidence-backed AI Insights
               </span>
               <span className="feature-badge">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="4" y1="21" x2="4" y2="14"></line>
-                  <line x1="4" y1="10" x2="4" y2="3"></line>
-                  <line x1="12" y1="21" x2="12" y2="12"></line>
-                  <line x1="12" y1="8" x2="12" y2="3"></line>
-                  <line x1="20" y1="21" x2="20" y2="16"></line>
-                  <line x1="20" y1="12" x2="20" y2="3"></line>
-                  <line x1="1" y1="14" x2="7" y2="14"></line>
-                  <line x1="9" y1="8" x2="15" y2="8"></line>
-                  <line x1="17" y1="16" x2="23" y2="16"></line>
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                  <polyline points="14 2 14 8 20 8"></polyline>
+                  <line x1="16" y1="13" x2="8" y2="13"></line>
+                  <line x1="16" y1="17" x2="8" y2="17"></line>
+                  <polyline points="10 9 9 9 8 9"></polyline>
                 </svg>
-                Compact analysis
+                Educational Action Recommendations
               </span>
             </div>
           </div>

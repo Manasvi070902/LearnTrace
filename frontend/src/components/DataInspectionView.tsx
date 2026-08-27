@@ -63,11 +63,11 @@ export function DataInspectionView({ data, onReset }: DataInspectionViewProps) {
 
       <div className="stats-summary-bar">
         <div className="stat-box">
-          <span className="stat-label">Comments Fetched</span>
+          <span className="stat-label">Public Comments</span>
           <span className="stat-value">{totalCommentsFetched}</span>
         </div>
         <div className="stat-box">
-          <span className="stat-label">Replies Fetched</span>
+          <span className="stat-label">Public Replies</span>
           <span className="stat-value">{totalRepliesFetched}</span>
         </div>
         <div className="stat-box">
@@ -87,6 +87,8 @@ export function DataInspectionView({ data, onReset }: DataInspectionViewProps) {
           No public comments found for this video.
         </div>
       ) : (
+        <>
+        <p className="table-source-note">Public audience conversations retrieved through the YouTube Data API.</p>
         <div className="comments-table-wrapper">
           <table className="comments-table">
             <thead>
@@ -153,6 +155,7 @@ export function DataInspectionView({ data, onReset }: DataInspectionViewProps) {
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );
