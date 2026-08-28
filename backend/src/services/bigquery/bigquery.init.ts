@@ -1,5 +1,5 @@
 import { getBigQueryClient } from './bigquery.client';
-import { VIDEOS_TABLE_SCHEMA, COMMENTS_TABLE_SCHEMA, TABLE_NAMES } from './bigquery.schema';
+import { VIDEOS_TABLE_SCHEMA, COMMENTS_TABLE_SCHEMA, COMMENT_ANALYSIS_TABLE_SCHEMA, ANALYSIS_RUNS_TABLE_SCHEMA, TABLE_NAMES } from './bigquery.schema';
 
 /**
  * Ensures the BigQuery dataset and required tables exist.
@@ -31,6 +31,8 @@ export async function initializeBigQueryTables(): Promise<void> {
 
   // Create comments table if it doesn't exist
   await ensureTable(dataset, TABLE_NAMES.COMMENTS, COMMENTS_TABLE_SCHEMA);
+  await ensureTable(dataset, TABLE_NAMES.COMMENT_ANALYSIS, COMMENT_ANALYSIS_TABLE_SCHEMA);
+  await ensureTable(dataset, TABLE_NAMES.ANALYSIS_RUNS, ANALYSIS_RUNS_TABLE_SCHEMA);
 
   console.log(`[BigQuery] Tables verified in dataset '${datasetId}'.`);
 }

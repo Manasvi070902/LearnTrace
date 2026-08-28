@@ -545,7 +545,8 @@ body::before {
 
 .data-availability-section,
 .analysis-cta-section,
-.conversations-section {
+.conversations-section,
+.signal-validation-section {
   background: rgba(8, 16, 33, 0.62);
   border: 1px solid rgba(56, 189, 248, 0.2);
   border-radius: 14px;
@@ -616,8 +617,62 @@ body::before {
 }
 
 .analysis-cta-button {
+  cursor: pointer;
+}
+
+.analysis-cta-button:disabled {
   cursor: not-allowed;
   opacity: 0.62;
+}
+
+.signal-validation-section h3 {
+  margin: 4px 0 8px;
+  color: #f8fafc;
+  font-size: 1.05rem;
+}
+
+.signal-summary {
+  color: #7dd3fc;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.signal-run-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  padding: 12px 0;
+  color: #cbd5e1;
+  font-size: 0.78rem;
+}
+
+.signal-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 18px 0;
+}
+
+.signal-filter {
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: 7px;
+  padding: 7px 10px;
+  color: #94a3b8;
+  background: rgba(15, 29, 56, 0.55);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+  text-transform: capitalize;
+}
+
+.signal-filter.active,
+.signal-filter:hover {
+  color: #e0f2fe;
+  border-color: #38bdf8;
+}
+
+.signal-table {
+  min-width: 920px;
 }
 
 .conversations-section-header {

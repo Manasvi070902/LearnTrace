@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { AnalyzeVideoResponse, YouTubeComment } from '../types';
+import { AnalyzeVideoResponse, CommentAnalysis, YouTubeComment } from '../types';
+import { analyzeLearningSignals } from '../services/api';
 
 interface DataInspectionViewProps {
   data: AnalyzeVideoResponse;
@@ -10,6 +11,11 @@ export function DataInspectionView({ data, onReset }: DataInspectionViewProps) {
   const { video, totalCommentsFetched, totalRepliesFetched, comments, commentsDisabled } = data;
   const [expandedComments, setExpandedComments] = useState<Record<string, boolean>>({});
   const [showConversations, setShowConversations] = useState(false);
+  const [signalRows, setSignalRows] = useState<CommentAnalysis[]>([]);
+  const [signalFilter, setSignalFilter] = useState('all');
+  const [signalLoading, setSignalLoading] = useState(false);
+  const [signalError, setSignalError] = useState<string | null>(null);
+  const [signalRun, setSignalRun] = useState<{ availableComments: number; commentsSelected: number; commentsCached: number; commentsSubmitted: number; geminiRequests: number; resultsStored: number } | null>(null);
   const totalConversations = totalCommentsFetched + totalRepliesFetched;
   const reportedComments = data.youtubeCommentCount;
   const coverage = reportedComments && reportedComments > 0
@@ -22,6 +28,27 @@ export function DataInspectionView({ data, onReset }: DataInspectionViewProps) {
       [commentId]: !prev[commentId],
     }));
   };
+
+  const runSignalAnalysis = async () => {
+    if (!video) return;
+    setSignalLoading(true);
+    setSignalError(null);
+    try {
+      const result = await analyzeLearningSignals(video.videoId);
+      setSignalRows(result.analyses || []);
+      setSignalRun({ availableComments: result.availableComments || 0, commentsSelected: result.commentsSelected || 0, commentsCached: result.commentsCached || 0, commentsSubmitted: result.commentsSubmitted || 0, geminiRequests: result.geminiRequests || 0, resultsStored: result.resultsStored || 0 });
+    } catch (error) {
+      setSignalError(error instanceof Error ? error.message : 'Learning-signal analysis failed.');
+    } finally {
+      setSignalLoading(false);
+    }
+  };
+
+  const filteredSignalRows = signalRows.filter((row) => {
+    if (signalFilter === 'all') return true;
+    if (signalFilter === 'praise_noise') return row.intent === 'praise' || row.intent === 'noise';
+    return row.intent === signalFilter;
+  });
 
   const formatDate = (isoString?: string) => {
     if (!isoString) return 'N/A';
@@ -117,13 +144,44 @@ export function DataInspectionView({ data, onReset }: DataInspectionViewProps) {
         <div>
           <span className="section-kicker">READY FOR LEARNING ANALYSIS</span>
           <h3>Ready for Learning Analysis</h3>
-          <p>{totalConversations.toLocaleString()} public audience conversations are ready to be analyzed for learner questions, recurring confusion, and learning friction.</p>
+          <p>{totalConversations.toLocaleString()} public audience conversations are ready for learning-signal analysis.</p>
         </div>
-        <button className="analysis-cta-button" disabled title="AI analysis coming next">
-          Analyze Learning Friction
+        <button className="analysis-cta-button" onClick={runSignalAnalysis} disabled={signalLoading || !video}>
+          {signalLoading ? 'Analyzing Learning Signals...' : 'Analyze Learning Signals'}
         </button>
-        <span className="coming-next-label">AI analysis coming next</span>
+        <span className="coming-next-label">AI analysis currently uses up to 50 public conversations for validation.</span>
       </section>
+
+      {signalError && <div className="notice-banner error-banner">{signalError}</div>}
+      {signalRows.length > 0 && (
+        <section className="signal-validation-section">
+          <div className="conversations-section-header">
+            <div>
+              <span className="section-kicker">PHASE 4 VALIDATION</span>
+              <h3>Learning Signal Validation</h3>
+              <p className="table-source-note">Gemini-derived classifications for manual inspection. No friction score is calculated here.</p>
+            </div>
+            <div className="signal-summary">{signalRows.length} analyzed · {signalRows.filter((row) => row.is_learning_signal).length} learning signals</div>
+          </div>
+          {signalRun && <div className="signal-run-stats"><span>Available: {signalRun.availableComments.toLocaleString()}</span><span>Selected: {signalRun.commentsSelected}</span><span>Cached: {signalRun.commentsCached}</span><span>Submitted: {signalRun.commentsSubmitted}</span><span>Gemini requests: {signalRun.geminiRequests}</span><span>Stored: {signalRun.resultsStored}</span></div>}
+          <div className="signal-filters">
+            {['all', 'conceptual_confusion', 'learning_question', 'technical_error', 'content_request', 'praise_noise'].map((filter) => (
+              <button key={filter} className={signalFilter === filter ? 'signal-filter active' : 'signal-filter'} onClick={() => setSignalFilter(filter)}>
+                {filter === 'all' ? 'All' : filter === 'praise_noise' ? 'Praise / Noise' : filter.replace(/_/g, ' ')}
+              </button>
+            ))}
+          </div>
+          <div className="comments-table-wrapper">
+            <table className="comments-table signal-table"><thead><tr><th>Original Comment</th><th>Intent</th><th>Canonical Question</th><th>Concept</th><th>Confusion</th><th>Confidence</th></tr></thead>
+              <tbody>{filteredSignalRows.map((row) => <tr key={`${row.comment_id}-${row.prompt_version}`}>
+                <td>{comments.flatMap((comment) => [comment, ...comment.replies]).find((comment) => comment.id === row.comment_id)?.textOriginal || 'Unavailable'}</td>
+                <td>{row.intent.replace(/_/g, ' ')}</td><td>{row.canonical_question || '—'}</td><td>{row.concept || '—'}</td>
+                <td>{row.confusion_strength.toFixed(2)}</td><td>{row.confidence.toFixed(2)}</td>
+              </tr>)}</tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       <section className="conversations-section">
         <div className="conversations-section-header">

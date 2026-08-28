@@ -77,3 +77,39 @@ export interface VideoStats {
   repliesStored: number;
   totalRecords: number;
 }
+
+export type LearningIntent =
+  | 'conceptual_confusion' | 'learning_question' | 'technical_error' | 'content_request'
+  | 'disagreement' | 'feedback' | 'praise' | 'noise' | 'other';
+
+export interface CommentAnalysis {
+  comment_id: string;
+  video_id: string;
+  intent: LearningIntent;
+  is_learning_signal: boolean;
+  canonical_question: string | null;
+  concept: string | null;
+  confusion_strength: number;
+  confidence: number;
+  reason: string;
+  model_name: string;
+  prompt_version: string;
+  analyzed_at: string;
+}
+
+export interface LearningSignalResponse {
+  status: 'success' | 'error';
+  videoId?: string;
+  commentsConsidered?: number;
+  availableComments?: number;
+  commentsSelected?: number;
+  commentsCached?: number;
+  commentsSubmitted?: number;
+  geminiRequests?: number;
+  resultsStored?: number;
+  commentsAnalyzed?: number;
+  learningSignals?: number;
+  intentCounts?: Record<string, number>;
+  analyses?: CommentAnalysis[];
+  error?: string;
+}

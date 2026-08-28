@@ -5,6 +5,7 @@ import path from 'path';
 import analyzeRouter from './routes/analyze';
 import dataRouter from './routes/data';
 import { initializeBigQueryTables } from './services/bigquery/bigquery.init';
+import learningSignalsRouter from './routes/learning-signals';
 
 dotenv.config();
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
@@ -22,6 +23,7 @@ app.get('/api/health', (_req: Request, res: Response) => {
 
 // Analyze Endpoints
 app.use('/api/analyze', analyzeRouter);
+app.use('/api/analyze', learningSignalsRouter);
 
 // Data / Verification Endpoints
 app.use('/api/data', dataRouter);

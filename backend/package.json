@@ -13,6 +13,7 @@
     "test": "jest"
   },
   "dependencies": {
+    "@google/genai": "^2.19.0",
     "@google-cloud/bigquery": "^9.0.0",
     "axios": "^1.20.0",
     "cors": "^2.8.6",

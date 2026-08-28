@@ -1,4 +1,4 @@
-import { AnalyzeVideoResponse, VideoStats } from '../types';
+import { AnalyzeVideoResponse, LearningSignalResponse, VideoStats } from '../types';
 
 const API_BASE_URL = 'http://localhost:3001/api';
 
@@ -51,4 +51,13 @@ export async function verifyBigQuery(videoId: string): Promise<VideoStats> {
   }
 
   return data as VideoStats;
+}
+
+export async function analyzeLearningSignals(videoId: string): Promise<LearningSignalResponse> {
+  const response = await fetch(`${API_BASE_URL}/analyze/video/${encodeURIComponent(videoId)}/learning-signals`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `Learning-signal analysis failed (${response.status}).`);
+  return data as LearningSignalResponse;
 }

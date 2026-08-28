@@ -29,7 +29,38 @@ export const COMMENTS_TABLE_SCHEMA: TableField[] = [
   { name: 'fetched_at',        type: 'TIMESTAMP', mode: 'REQUIRED' },
 ];
 
+export const COMMENT_ANALYSIS_TABLE_SCHEMA: TableField[] = [
+  { name: 'comment_id', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'video_id', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'intent', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'is_learning_signal', type: 'BOOL', mode: 'REQUIRED' },
+  { name: 'canonical_question', type: 'STRING', mode: 'NULLABLE' },
+  { name: 'concept', type: 'STRING', mode: 'NULLABLE' },
+  { name: 'confusion_strength', type: 'FLOAT64', mode: 'REQUIRED' },
+  { name: 'confidence', type: 'FLOAT64', mode: 'REQUIRED' },
+  { name: 'reason', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'model_name', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'prompt_version', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'analyzed_at', type: 'TIMESTAMP', mode: 'REQUIRED' },
+];
+
+export const ANALYSIS_RUNS_TABLE_SCHEMA: TableField[] = [
+  { name: 'run_id', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'video_id', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'selected_comment_ids', type: 'STRING', mode: 'REPEATED' },
+  { name: 'comments_selected', type: 'INT64', mode: 'REQUIRED' },
+  { name: 'comments_cached', type: 'INT64', mode: 'REQUIRED' },
+  { name: 'comments_submitted', type: 'INT64', mode: 'REQUIRED' },
+  { name: 'gemini_requests', type: 'INT64', mode: 'REQUIRED' },
+  { name: 'results_stored', type: 'INT64', mode: 'REQUIRED' },
+  { name: 'started_at', type: 'TIMESTAMP', mode: 'REQUIRED' },
+  { name: 'completed_at', type: 'TIMESTAMP', mode: 'NULLABLE' },
+  { name: 'status', type: 'STRING', mode: 'REQUIRED' },
+];
+
 export const TABLE_NAMES = {
   VIDEOS: 'videos',
   COMMENTS: 'comments',
+  COMMENT_ANALYSIS: 'comment_analysis',
+  ANALYSIS_RUNS: 'analysis_runs',
 } as const;
