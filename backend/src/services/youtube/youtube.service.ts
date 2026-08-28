@@ -57,6 +57,7 @@ export async function fetchVideoMetadata(
     publishedAt: snippet?.publishedAt || new Date().toISOString(),
     duration: contentDetails?.duration,
     viewCount: statistics?.viewCount,
+    commentCount: statistics?.commentCount,
     thumbnailUrl,
   };
 }
@@ -67,13 +68,19 @@ export async function fetchVideoMetadata(
 export async function fetchCommentThreads(
   videoId: string,
   apiKey: string,
-  maxComments: number = 500
+  maxComments: number = Number.POSITIVE_INFINITY
 ): Promise<FetchCommentsResult> {
   const url = `${YOUTUBE_API_BASE_URL}/commentThreads`;
   const comments: YouTubeComment[] = [];
   let pageToken: string | undefined = undefined;
   let totalCommentsCount = 0;
   let totalRepliesCount = 0;
+  let totalRepliesExpected = 0;
+  let threadPagesFetched = 0;
+  let replyApiCalls = 0;
+  let duplicateIdsIgnored = 0;
+  const uniqueCommentIds = new Set<string>();
+  const apiErrors: string[] = [];
 
   try {
     while (totalCommentsCount < maxComments) {
@@ -91,6 +98,7 @@ export async function fetchCommentThreads(
         },
         timeout: 15000,
       });
+      threadPagesFetched += 1;
 
       const items = apiRes.data?.items || [];
       if (items.length === 0) {
@@ -105,6 +113,7 @@ export async function fetchCommentThreads(
 
         if (!topLevelSnippet) continue;
 
+        const topLevelCommentId = threadSnippet.topLevelComment.id || item.id;
         const totalReplyCount = threadSnippet.totalReplyCount || 0;
         let inlineReplies: YouTubeReply[] = [];
 
@@ -116,7 +125,7 @@ export async function fetchCommentThreads(
               const rSnippet = replyItem.snippet!;
               return {
                 id: replyItem.id,
-                parentId: rSnippet.parentId || item.id,
+                parentId: rSnippet.parentId || topLevelCommentId,
                 authorDisplayName: rSnippet.authorDisplayName || 'Anonymous',
                 authorProfileImageUrl: rSnippet.authorProfileImageUrl,
                 textDisplay: rSnippet.textDisplay || '',
@@ -128,20 +137,24 @@ export async function fetchCommentThreads(
             });
         }
 
-        // 2. If thread has more replies than returned inline, fetch remaining replies if quota/limit allows
-        if (totalReplyCount > inlineReplies.length && totalCommentsCount + inlineReplies.length < maxComments) {
+        // 2. Fetch every reply page when the inline response is incomplete.
+        if (totalReplyCount > inlineReplies.length) {
           try {
-            const fetchedReplies = await fetchRepliesForComment(item.id, apiKey);
-            if (fetchedReplies.length > inlineReplies.length) {
-              inlineReplies = fetchedReplies;
+            const replyResult = await fetchRepliesForComment(topLevelCommentId, apiKey);
+            replyApiCalls += replyResult.apiCalls;
+            apiErrors.push(...replyResult.apiErrors);
+            if (replyResult.replies.length > inlineReplies.length) {
+              inlineReplies = replyResult.replies;
             }
           } catch (replyErr) {
-            // Ignore error fetching additional replies, use existing inline replies
+            const message = replyErr instanceof Error ? replyErr.message : String(replyErr);
+            apiErrors.push(`reply ${topLevelCommentId}: ${message}`);
+            console.error(`[YouTube] Failed to fetch replies for comment '${topLevelCommentId}': ${message}`);
           }
         }
 
         const normalizedComment: YouTubeComment = {
-          id: item.id,
+          id: topLevelCommentId,
           videoId: threadSnippet.videoId || videoId,
           authorDisplayName: topLevelSnippet.authorDisplayName || 'Anonymous',
           authorProfileImageUrl: topLevelSnippet.authorProfileImageUrl,
@@ -154,9 +167,27 @@ export async function fetchCommentThreads(
           replies: inlineReplies,
         };
 
+        if (uniqueCommentIds.has(normalizedComment.id)) {
+          duplicateIdsIgnored += 1;
+          continue;
+        }
+
+        totalRepliesExpected += totalReplyCount;
+        uniqueCommentIds.add(normalizedComment.id);
+        const uniqueReplies: YouTubeReply[] = [];
+        for (const reply of normalizedComment.replies) {
+          if (uniqueCommentIds.has(reply.id)) {
+            duplicateIdsIgnored += 1;
+            continue;
+          }
+          uniqueCommentIds.add(reply.id);
+          uniqueReplies.push(reply);
+        }
+
+        normalizedComment.replies = uniqueReplies;
         comments.push(normalizedComment);
         totalCommentsCount += 1;
-        totalRepliesCount += inlineReplies.length;
+        totalRepliesCount += uniqueReplies.length;
       }
 
       pageToken = apiRes.data?.nextPageToken;
@@ -169,6 +200,13 @@ export async function fetchCommentThreads(
       comments,
       totalCommentsFetched: totalCommentsCount,
       totalRepliesFetched: totalRepliesCount,
+      totalRepliesExpected,
+      missingReplies: Math.max(0, totalRepliesExpected - totalRepliesCount),
+      threadPagesFetched,
+      replyApiCalls,
+      duplicateIdsIgnored,
+      totalUniqueCommentsFetched: uniqueCommentIds.size,
+      apiErrors,
       commentsDisabled: false,
     };
   } catch (err: any) {
@@ -188,6 +226,13 @@ export async function fetchCommentThreads(
           comments: [],
           totalCommentsFetched: 0,
           totalRepliesFetched: 0,
+          totalRepliesExpected: 0,
+          missingReplies: 0,
+          threadPagesFetched,
+          replyApiCalls,
+          duplicateIdsIgnored,
+          totalUniqueCommentsFetched: 0,
+          apiErrors,
           commentsDisabled: true,
         };
       }
@@ -203,35 +248,57 @@ export async function fetchCommentThreads(
 async function fetchRepliesForComment(
   parentId: string,
   apiKey: string
-): Promise<YouTubeReply[]> {
+): Promise<{ replies: YouTubeReply[]; apiCalls: number; apiErrors: string[] }> {
   const url = `${YOUTUBE_API_BASE_URL}/comments`;
-  const response: AxiosResponse<YouTubeApiCommentListResponse> = await axios.get<YouTubeApiCommentListResponse>(url, {
-    params: {
-      part: 'snippet',
-      parentId,
-      maxResults: 100,
-      key: apiKey,
-    },
-    timeout: 10000,
-  });
+  const replies: YouTubeReply[] = [];
+  const apiErrors: string[] = [];
+  let apiCalls = 0;
+  let pageToken: string | undefined;
 
-  const items = response.data?.items || [];
-  return items
-    .filter((item: YouTubeApiCommentItem) => Boolean(item.snippet))
-    .map((item: YouTubeApiCommentItem) => {
-      const snippet = item.snippet!;
-      return {
-        id: item.id,
-        parentId: snippet.parentId || parentId,
-        authorDisplayName: snippet.authorDisplayName || 'Anonymous',
-        authorProfileImageUrl: snippet.authorProfileImageUrl,
-        textDisplay: snippet.textDisplay || '',
-        textOriginal: snippet.textOriginal || snippet.textDisplay || '',
-        likeCount: snippet.likeCount || 0,
-        publishedAt: snippet.publishedAt,
-        updatedAt: snippet.updatedAt,
-      };
-    });
+  do {
+    apiCalls += 1;
+    let response: AxiosResponse<YouTubeApiCommentListResponse>;
+    try {
+      response = await axios.get<YouTubeApiCommentListResponse>(url, {
+        params: {
+          part: 'snippet',
+          parentId,
+          maxResults: 100,
+          pageToken,
+          key: apiKey,
+        },
+        timeout: 10000,
+      });
+    } catch (error: any) {
+      const message = error?.response?.data?.error?.message || error?.message || String(error);
+      apiErrors.push(`comments.list parentId=${parentId}: ${message}`);
+      break;
+    }
+
+    const items = response.data?.items || [];
+    replies.push(
+      ...items
+        .filter((item: YouTubeApiCommentItem) => Boolean(item.snippet))
+        .map((item: YouTubeApiCommentItem) => {
+          const snippet = item.snippet!;
+          return {
+            id: item.id,
+            parentId: snippet.parentId || parentId,
+            authorDisplayName: snippet.authorDisplayName || 'Anonymous',
+            authorProfileImageUrl: snippet.authorProfileImageUrl,
+            textDisplay: snippet.textDisplay || '',
+            textOriginal: snippet.textOriginal || snippet.textDisplay || '',
+            likeCount: snippet.likeCount || 0,
+            publishedAt: snippet.publishedAt,
+            updatedAt: snippet.updatedAt,
+          };
+        })
+    );
+
+    pageToken = response.data?.nextPageToken;
+  } while (pageToken);
+
+  return { replies, apiCalls, apiErrors };
 }
 
 /**
@@ -265,23 +332,60 @@ export async function analyzeYouTubeVideo(
   }
 
   try {
-    const maxComments = options?.maxComments || 500;
+    const maxComments = options?.maxComments ?? Number.POSITIVE_INFINITY;
 
     // 1. Fetch Video Metadata
     const videoMetadata = await fetchVideoMetadata(videoId, apiKey);
 
     // 2. Fetch Comment Threads & Replies
     const commentsResult = await fetchCommentThreads(videoId, apiKey, maxComments);
+    const youtubeCommentCount = Number(videoMetadata.commentCount ?? 0);
+    const fetchedRecords =
+      commentsResult.totalCommentsFetched + commentsResult.totalRepliesFetched;
+
+    console.log(
+      `[YouTube] ${videoId}: ` +
+        `reported=${youtubeCommentCount}, ` +
+        `threadPages=${commentsResult.threadPagesFetched}, ` +
+        `topLevel=${commentsResult.totalCommentsFetched}, ` +
+        `replyApiCalls=${commentsResult.replyApiCalls}, ` +
+        `repliesExpected=${commentsResult.totalRepliesExpected}, ` +
+        `repliesFetched=${commentsResult.totalRepliesFetched}, ` +
+        `duplicatesIgnored=${commentsResult.duplicateIdsIgnored}, ` +
+        `uniqueTotal=${commentsResult.totalUniqueCommentsFetched}, ` +
+        `apiErrors=${commentsResult.apiErrors.length}, ` +
+        `missing=${Math.max(0, youtubeCommentCount - fetchedRecords)}`
+    );
+
+    for (const apiError of commentsResult.apiErrors) {
+      console.error(`[YouTube] API error: ${apiError}`);
+    }
 
     return {
       status: 'success',
       video: videoMetadata,
       totalCommentsFetched: commentsResult.totalCommentsFetched,
       totalRepliesFetched: commentsResult.totalRepliesFetched,
+      totalRepliesExpected: commentsResult.totalRepliesExpected,
+      missingReplies: commentsResult.missingReplies,
+      youtubeCommentCount,
+      threadPagesFetched: commentsResult.threadPagesFetched,
+      replyApiCalls: commentsResult.replyApiCalls,
+      duplicateIdsIgnored: commentsResult.duplicateIdsIgnored,
+      totalUniqueCommentsFetched: commentsResult.totalUniqueCommentsFetched,
+      apiErrors: commentsResult.apiErrors,
+      missingRecords: Math.max(
+        0,
+        youtubeCommentCount - fetchedRecords
+      ),
       comments: commentsResult.comments,
       commentsDisabled: commentsResult.commentsDisabled,
     };
   } catch (err: any) {
+    console.error(
+      `[YouTube] API error while analyzing '${videoId}':`,
+      err?.response?.data?.error?.message || err?.message || err
+    );
     const statusCode = err?.response?.status;
     const apiErrorMessage = err?.response?.data?.error?.message;
 
@@ -307,6 +411,8 @@ export async function analyzeYouTubeVideo(
       status: 'error',
       totalCommentsFetched: 0,
       totalRepliesFetched: 0,
+      totalRepliesExpected: 0,
+      missingReplies: 0,
       comments: [],
       error: userFriendlyError,
     };

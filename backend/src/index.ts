@@ -1,11 +1,13 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import path from 'path';
 import analyzeRouter from './routes/analyze';
 import dataRouter from './routes/data';
 import { initializeBigQueryTables } from './services/bigquery/bigquery.init';
 
 dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 const app = express();
 const PORT = process.env.PORT || 3001;

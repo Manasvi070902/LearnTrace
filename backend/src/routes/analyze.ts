@@ -30,6 +30,8 @@ router.post('/video', async (req: Request, res: Response) => {
       status: 'error',
       totalCommentsFetched: 0,
       totalRepliesFetched: 0,
+      totalRepliesExpected: 0,
+      missingReplies: 0,
       comments: [],
       error: 'Missing or invalid "url" parameter in request body.',
     });
@@ -38,7 +40,7 @@ router.post('/video', async (req: Request, res: Response) => {
   try {
     // ── Step 1: Fetch from YouTube Data API ────────────────────────────────────
     const result = await analyzeYouTubeVideo(url, {
-      maxComments: typeof maxComments === 'number' && maxComments > 0 ? maxComments : 500,
+      maxComments: typeof maxComments === 'number' && maxComments > 0 ? maxComments : undefined,
     });
 
     if (result.status === 'error') {
@@ -61,6 +63,15 @@ router.post('/video', async (req: Request, res: Response) => {
       status: 'success' as const,
       commentsFetched: result.totalCommentsFetched,
       repliesFetched: result.totalRepliesFetched,
+      repliesExpected: result.totalRepliesExpected,
+      missingReplies: result.missingReplies,
+      youtubeCommentCount: result.youtubeCommentCount,
+      missingRecords: result.missingRecords,
+      threadPagesFetched: result.threadPagesFetched,
+      replyApiCalls: result.replyApiCalls,
+      duplicateIdsIgnored: result.duplicateIdsIgnored,
+      totalUniqueCommentsFetched: result.totalUniqueCommentsFetched,
+      apiErrors: result.apiErrors,
     };
 
     // ── Step 2: Persist to BigQuery ────────────────────────────────────────────
@@ -110,6 +121,8 @@ router.post('/video', async (req: Request, res: Response) => {
       status: 'error',
       totalCommentsFetched: 0,
       totalRepliesFetched: 0,
+      totalRepliesExpected: 0,
+      missingReplies: 0,
       comments: [],
       error: 'An unexpected internal server error occurred while processing the request.',
       youtube: { status: 'error', commentsFetched: 0, repliesFetched: 0 },

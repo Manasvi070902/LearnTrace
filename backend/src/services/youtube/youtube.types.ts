@@ -100,6 +100,7 @@ export interface YouTubeVideoMetadata {
   publishedAt: string;
   duration?: string;
   viewCount?: string;
+  commentCount?: string;
   thumbnailUrl?: string;
 }
 
@@ -133,6 +134,13 @@ export interface FetchCommentsResult {
   comments: YouTubeComment[];
   totalCommentsFetched: number;
   totalRepliesFetched: number;
+  totalRepliesExpected: number;
+  missingReplies: number;
+  threadPagesFetched: number;
+  replyApiCalls: number;
+  duplicateIdsIgnored: number;
+  totalUniqueCommentsFetched: number;
+  apiErrors: string[];
   commentsDisabled: boolean;
   error?: string;
 }
@@ -146,6 +154,15 @@ export interface AnalyzeVideoResponse {
   video?: YouTubeVideoMetadata;
   totalCommentsFetched: number;
   totalRepliesFetched: number;
+  totalRepliesExpected?: number;
+  missingReplies?: number;
+  youtubeCommentCount?: number;
+  missingRecords?: number;
+  threadPagesFetched?: number;
+  replyApiCalls?: number;
+  duplicateIdsIgnored?: number;
+  totalUniqueCommentsFetched?: number;
+  apiErrors?: string[];
   comments: YouTubeComment[];
   commentsDisabled?: boolean;
   error?: string;

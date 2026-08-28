@@ -10,6 +10,7 @@ describe('YouTube Service', () => {
   beforeEach(() => {
     jest.resetModules();
     process.env = { ...originalEnv };
+    mockedAxios.get.mockReset();
   });
 
   afterAll(() => {
@@ -109,6 +110,96 @@ describe('YouTube Service', () => {
     expect(result.commentsDisabled).toBe(false);
     expect(result.comments[0].authorDisplayName).toBe('Student A');
     expect(result.comments[0].replies[0].authorDisplayName).toBe('Instructor B');
+  });
+
+  test('fetchCommentThreads paginates replies beyond the first page', async () => {
+    mockedAxios.get
+      .mockResolvedValueOnce({
+        data: {
+          items: [
+            {
+              id: 'thread_1',
+              snippet: {
+                videoId: 'dQw4w9WgXcQ',
+                totalReplyCount: 2,
+                topLevelComment: {
+                  id: 'comment_1',
+                  snippet: {
+                    authorDisplayName: 'Student A',
+                    textDisplay: 'Question',
+                    textOriginal: 'Question',
+                    likeCount: 1,
+                    publishedAt: '2023-01-02T10:00:00Z',
+                    updatedAt: '2023-01-02T10:00:00Z',
+                  },
+                },
+              },
+              replies: {
+                comments: [
+                  {
+                    id: 'reply_1',
+                    snippet: {
+                      parentId: 'thread_1',
+                      authorDisplayName: 'Instructor B',
+                      textDisplay: 'First reply',
+                      textOriginal: 'First reply',
+                      likeCount: 1,
+                      publishedAt: '2023-01-02T11:00:00Z',
+                      updatedAt: '2023-01-02T11:00:00Z',
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          items: [
+            {
+              id: 'reply_1',
+              snippet: {
+                parentId: 'thread_1',
+                authorDisplayName: 'Instructor B',
+                textDisplay: 'First reply',
+                textOriginal: 'First reply',
+                likeCount: 1,
+                publishedAt: '2023-01-02T11:00:00Z',
+                updatedAt: '2023-01-02T11:00:00Z',
+              },
+            },
+          ],
+          nextPageToken: 'reply-page-2',
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          items: [
+            {
+              id: 'reply_2',
+              snippet: {
+                parentId: 'thread_1',
+                authorDisplayName: 'Student A',
+                textDisplay: 'Second reply',
+                textOriginal: 'Second reply',
+                likeCount: 0,
+                publishedAt: '2023-01-02T12:00:00Z',
+                updatedAt: '2023-01-02T12:00:00Z',
+              },
+            },
+          ],
+        },
+      });
+
+    const result = await fetchCommentThreads('dQw4w9WgXcQ', 'fake_api_key', 10);
+
+    expect(result.totalCommentsFetched).toBe(1);
+    expect(result.totalRepliesFetched).toBe(2);
+    expect(result.comments[0].replies.map((reply) => reply.id)).toEqual(['reply_1', 'reply_2']);
+    const replyRequest = mockedAxios.get.mock.calls[1]?.[1] as { params: { parentId: string } };
+    expect(mockedAxios.get.mock.calls[1]?.[0]).toContain('/comments');
+    expect(replyRequest.params.parentId).toBe('comment_1');
   });
 
   test('fetchCommentThreads handles comments disabled error gracefully', async () => {

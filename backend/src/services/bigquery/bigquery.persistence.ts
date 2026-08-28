@@ -76,11 +76,15 @@ export async function upsertComments(
   comments: YouTubeComment[],
   videoId: string
 ): Promise<number> {
-  if (comments.length === 0) return 0;
-
   const datasetId = process.env.BIGQUERY_DATASET!;
   const projectId = process.env.GOOGLE_CLOUD_PROJECT_ID!;
   const bq = getBigQueryClient();
+
+  // Reconcile the complete result so rows removed by YouTube do not remain stale.
+  await deleteCommentsForVideo(bq, projectId, datasetId, videoId);
+
+  if (comments.length === 0) return 0;
+
   const fetchedAt = new Date().toISOString();
   const rows = flattenCommentsToRows(comments, videoId, fetchedAt);
 
@@ -98,6 +102,22 @@ export async function upsertComments(
   }
 
   return totalStored;
+}
+
+async function deleteCommentsForVideo(
+  bq: ReturnType<typeof getBigQueryClient>,
+  projectId: string,
+  datasetId: string,
+  videoId: string
+): Promise<void> {
+  await bq.query({
+    query: `
+      DELETE FROM \`${projectId}.${datasetId}.${TABLE_NAMES.COMMENTS}\`
+      WHERE video_id = @video_id
+    `,
+    params: { video_id: videoId },
+    location: process.env.BIGQUERY_LOCATION,
+  });
 }
 
 /**
@@ -162,7 +182,12 @@ async function mergeBatchComments(
  * Only used internally for BigQuery STRUCT literals (not for user input exposed externally).
  */
 function escapeSql(value: string): string {
-  return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\r/g, '\\r')
+    .replace(/\n/g, '\\n')
+    .replace(/\t/g, '\\t');
 }
 
 /**

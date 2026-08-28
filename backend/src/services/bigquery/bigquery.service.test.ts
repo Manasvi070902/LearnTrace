@@ -12,6 +12,13 @@ import {
   flattenCommentsToRows,
 } from './bigquery.mapper';
 import { YouTubeVideoMetadata, YouTubeComment, YouTubeReply } from '../youtube/youtube.types';
+import { persistAnalysisResult } from './bigquery.persistence';
+
+const mockQuery = jest.fn().mockResolvedValue([[]]);
+
+jest.mock('./bigquery.client', () => ({
+  getBigQueryClient: jest.fn(() => ({ query: mockQuery })),
+}));
 
 // ─── Test Fixtures ─────────────────────────────────────────────────────────────
 
@@ -219,5 +226,47 @@ describe('flattenCommentsToRows', () => {
     const rows1 = flattenCommentsToRows([mockComment], 'testVideoId123', FIXED_TIMESTAMP);
     const rows2 = flattenCommentsToRows([mockComment], 'testVideoId123', FIXED_TIMESTAMP);
     expect(rows1).toEqual(rows2);
+  });
+});
+
+describe('BigQuery persistence', () => {
+  beforeEach(() => {
+    process.env.GOOGLE_CLOUD_PROJECT_ID = 'test-project';
+    process.env.BIGQUERY_DATASET = 'learntrace';
+    mockQuery.mockClear();
+  });
+
+  it('can persist the same analysis repeatedly using MERGE statements', async () => {
+    await expect(persistAnalysisResult(mockVideo, [mockComment])).resolves.toEqual({
+      videoStored: true,
+      commentsStored: 2,
+    });
+    await expect(persistAnalysisResult(mockVideo, [mockComment])).resolves.toEqual({
+      videoStored: true,
+      commentsStored: 2,
+    });
+
+    expect(mockQuery).toHaveBeenCalledTimes(6);
+    expect(mockQuery.mock.calls[0][0].query).toContain('MERGE');
+    expect(mockQuery.mock.calls[1][0].query).toContain('DELETE FROM');
+    expect(mockQuery.mock.calls[1][0].query).toContain('WHERE video_id = @video_id');
+    expect(mockQuery.mock.calls[2][0].query).toContain('MERGE');
+    expect(mockQuery.mock.calls[2][0].query).toContain('target.comment_id = source.comment_id');
+  });
+
+  it('escapes multiline comment text in the MERGE query', async () => {
+    const multilineComment = {
+      ...mockComment,
+      textOriginal: "It's a comment\nwith a second line",
+    };
+
+    await expect(persistAnalysisResult(mockVideo, [multilineComment])).resolves.toEqual({
+      videoStored: true,
+      commentsStored: 2,
+    });
+
+    const commentsQuery = mockQuery.mock.calls[2][0].query as string;
+    expect(commentsQuery).toContain("It\\'s a comment\\nwith a second line");
+    expect(commentsQuery).not.toContain("It's a comment\nwith a second line");
   });
 });
