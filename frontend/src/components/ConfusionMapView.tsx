@@ -44,7 +44,8 @@ export function ConfusionMapView({ videoId, report, confusionMap }: ConfusionMap
       <div className="analysis-coverage" aria-label="Analysis coverage">
         <span>Public conversations available: <strong>{report.availableComments.toLocaleString()}</strong></span>
         <span>AI-analyzed conversations: <strong>{report.aiAnalyzedComments.toLocaleString()}</strong></span>
-        <span>Learning signals found: <strong>{report.learningSignals.toLocaleString()}</strong></span>
+        <span>Learning-related signals: <strong>{report.learningSignals.toLocaleString()}</strong></span>
+        <span>Technical barriers: <strong>{report.technicalBarriers.toLocaleString()}</strong></span>
         <span>Analysis coverage: <strong>{analysisCoverage.toFixed(1)}%</strong></span>
       </div>
       <p className="early-analysis-note">Analysis based on {report.aiAnalyzedComments.toLocaleString()} public conversations.</p>

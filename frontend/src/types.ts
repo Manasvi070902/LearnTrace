@@ -140,6 +140,7 @@ export interface FrictionReport {
   normalizedConcepts: number;
   conceptsWithEvidence: number;
   conceptsInsufficientEvidence: number;
+  technicalBarriers: number;
 }
 
 export interface FrictionResponse {

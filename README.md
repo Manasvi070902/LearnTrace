@@ -81,6 +81,17 @@ allow the run to proceed. Confirm the cached analysis total reaches approximatel
 open a concept, and use **View Evidence** to confirm the displayed comments came
 from BigQuery.
 
+#### Phase 5.1 manual recomputation
+
+To apply the learning-friction eligibility refinement to existing cached analyses,
+do **not** click **Analyze More Conversations**. Rebuild and restart the backend,
+then open the existing video and click **Build Confusion Map**. This recomputes the
+map from cached `comment_analysis` rows. The primary map should contain only
+conceptual confusion and genuine educational questions; tooling errors, playlist
+organization, links, and course-navigation questions should not appear or affect
+Learning Friction. Confirm Concept Detail and **View Evidence** show only the
+learning-eligible source comments for a primary-map concept.
+
 Inspect results with:
 
 ```sql

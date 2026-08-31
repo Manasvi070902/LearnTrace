@@ -56,6 +56,7 @@ router.post('/video/:videoId/friction', async (req: Request, res: Response) => {
         normalizedConcepts: report.normalizedConcepts,
         conceptsWithEvidence: report.conceptsWithEvidence,
         conceptsInsufficientEvidence: report.conceptsInsufficientEvidence,
+        technicalBarriers: report.technicalBarriers,
       },
       confusionMap: report.frictionScores,
     });

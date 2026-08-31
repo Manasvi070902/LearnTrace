@@ -20,17 +20,16 @@ import { normalizeConcept } from '../clustering/concept-normalizer';
 import { calculateVideoFriction, SCORING_VERSION, ConceptFrictionInput, validateWeights } from '../friction/friction-scoring.service';
 import { getConfiguredGeminiModel } from '../gemini/comment-analysis.service';
 import { getVideoStats } from './bigquery.retrieval';
+import { deriveSignalDomain } from '../friction/signal-domain.service';
 
 const LEARNING_SIGNAL_MIN_CONFIDENCE = Number(process.env.LEARNING_SIGNAL_MIN_CONFIDENCE || 0.65);
-const EXCLUDED_INTENTS = new Set(['praise', 'noise', 'content_request']);
-
 /** Phase 5 consumes only the cached, qualifying Phase 4 learning signals. */
 export function isEligibleLearningSignal(analysis: CommentAnalysisRow): boolean {
   return Boolean(
     analysis.is_learning_signal &&
     analysis.canonical_question?.trim() &&
     analysis.confidence >= LEARNING_SIGNAL_MIN_CONFIDENCE &&
-    !EXCLUDED_INTENTS.has(analysis.intent)
+    deriveSignalDomain(analysis) === 'learning'
   );
 }
 
@@ -46,6 +45,7 @@ export interface FrictionAnalysisReport {
   normalizedConcepts: number;
   conceptsWithEvidence: number;
   conceptsInsufficientEvidence: number;
+  technicalBarriers: number;
   frictionScores: FrictionRow[];
 }
 
@@ -71,6 +71,7 @@ export async function analyzeFrictionForVideo(videoId: string): Promise<Friction
 
   // Step 2: Filter for valid learning signals
   const learningSignals = allAnalyses.filter(isEligibleLearningSignal);
+  const technicalBarriers = allAnalyses.filter((analysis) => deriveSignalDomain(analysis) === 'technical').length;
 
   const videoStats = await getVideoStats(videoId);
   const availableComments = videoStats?.totalRecords ?? 0;
@@ -90,6 +91,7 @@ export async function analyzeFrictionForVideo(videoId: string): Promise<Friction
       normalizedConcepts: 0,
       conceptsWithEvidence: 0,
       conceptsInsufficientEvidence: 0,
+      technicalBarriers,
       frictionScores: [],
     };
   }
@@ -291,6 +293,7 @@ export async function analyzeFrictionForVideo(videoId: string): Promise<Friction
     normalizedConcepts: normalizedConcepts.size,
     conceptsWithEvidence,
     conceptsInsufficientEvidence,
+    technicalBarriers,
     frictionScores: frictionRows,
   };
 }
