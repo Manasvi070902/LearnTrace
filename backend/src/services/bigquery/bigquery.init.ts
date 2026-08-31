@@ -1,5 +1,5 @@
 import { getBigQueryClient } from './bigquery.client';
-import { VIDEOS_TABLE_SCHEMA, COMMENTS_TABLE_SCHEMA, COMMENT_ANALYSIS_TABLE_SCHEMA, ANALYSIS_RUNS_TABLE_SCHEMA, TABLE_NAMES } from './bigquery.schema';
+import { VIDEOS_TABLE_SCHEMA, COMMENTS_TABLE_SCHEMA, COMMENT_ANALYSIS_TABLE_SCHEMA, ANALYSIS_RUNS_TABLE_SCHEMA, QUESTION_EMBEDDINGS_TABLE_SCHEMA, QUESTION_CLUSTERS_TABLE_SCHEMA, QUESTION_CLUSTER_MEMBERS_TABLE_SCHEMA, LEARNING_FRICTION_TABLE_SCHEMA, TABLE_NAMES } from './bigquery.schema';
 
 /**
  * Ensures the BigQuery dataset and required tables exist.
@@ -33,6 +33,12 @@ export async function initializeBigQueryTables(): Promise<void> {
   await ensureTable(dataset, TABLE_NAMES.COMMENTS, COMMENTS_TABLE_SCHEMA);
   await ensureTable(dataset, TABLE_NAMES.COMMENT_ANALYSIS, COMMENT_ANALYSIS_TABLE_SCHEMA);
   await ensureTable(dataset, TABLE_NAMES.ANALYSIS_RUNS, ANALYSIS_RUNS_TABLE_SCHEMA);
+
+  // Phase 5: Create friction analysis tables
+  await ensureTable(dataset, TABLE_NAMES.QUESTION_EMBEDDINGS, QUESTION_EMBEDDINGS_TABLE_SCHEMA);
+  await ensureTable(dataset, TABLE_NAMES.QUESTION_CLUSTERS, QUESTION_CLUSTERS_TABLE_SCHEMA);
+  await ensureTable(dataset, TABLE_NAMES.QUESTION_CLUSTER_MEMBERS, QUESTION_CLUSTER_MEMBERS_TABLE_SCHEMA);
+  await ensureTable(dataset, TABLE_NAMES.LEARNING_FRICTION, LEARNING_FRICTION_TABLE_SCHEMA);
 
   console.log(`[BigQuery] Tables verified in dataset '${datasetId}'.`);
 }

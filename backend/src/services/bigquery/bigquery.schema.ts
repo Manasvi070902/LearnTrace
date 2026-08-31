@@ -58,9 +58,61 @@ export const ANALYSIS_RUNS_TABLE_SCHEMA: TableField[] = [
   { name: 'status', type: 'STRING', mode: 'REQUIRED' },
 ];
 
+export const QUESTION_EMBEDDINGS_TABLE_SCHEMA: TableField[] = [
+  { name: 'comment_id', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'video_id', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'canonical_question', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'concept', type: 'STRING', mode: 'NULLABLE' },
+  { name: 'embedding', type: 'FLOAT64', mode: 'REPEATED' },
+  { name: 'embedding_model', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'prompt_version', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'created_at', type: 'TIMESTAMP', mode: 'REQUIRED' },
+];
+
+export const QUESTION_CLUSTERS_TABLE_SCHEMA: TableField[] = [
+  { name: 'cluster_id', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'video_id', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'cluster_label', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'primary_concept', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'question_count', type: 'INT64', mode: 'REQUIRED' },
+  { name: 'average_confusion_strength', type: 'FLOAT64', mode: 'REQUIRED' },
+  { name: 'average_confidence', type: 'FLOAT64', mode: 'REQUIRED' },
+  { name: 'representative_comment_ids', type: 'STRING', mode: 'REPEATED' },
+  { name: 'created_at', type: 'TIMESTAMP', mode: 'REQUIRED' },
+  { name: 'clustering_version', type: 'STRING', mode: 'REQUIRED' },
+];
+
+export const QUESTION_CLUSTER_MEMBERS_TABLE_SCHEMA: TableField[] = [
+  { name: 'cluster_id', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'comment_id', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'video_id', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'similarity_score', type: 'FLOAT64', mode: 'REQUIRED' },
+  { name: 'created_at', type: 'TIMESTAMP', mode: 'REQUIRED' },
+];
+
+export const LEARNING_FRICTION_TABLE_SCHEMA: TableField[] = [
+  { name: 'video_id', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'normalized_concept', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'learning_friction_score', type: 'FLOAT64', mode: 'REQUIRED' },
+  { name: 'friction_level', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'question_count', type: 'INT64', mode: 'REQUIRED' },
+  { name: 'cluster_count', type: 'INT64', mode: 'REQUIRED' },
+  { name: 'volume_score', type: 'FLOAT64', mode: 'REQUIRED' },
+  { name: 'confusion_score', type: 'FLOAT64', mode: 'REQUIRED' },
+  { name: 'recurrence_score', type: 'FLOAT64', mode: 'REQUIRED' },
+  { name: 'average_confusion_strength', type: 'FLOAT64', mode: 'REQUIRED' },
+  { name: 'evidence_count', type: 'INT64', mode: 'REQUIRED' },
+  { name: 'calculated_at', type: 'TIMESTAMP', mode: 'REQUIRED' },
+  { name: 'scoring_version', type: 'STRING', mode: 'REQUIRED' },
+];
+
 export const TABLE_NAMES = {
   VIDEOS: 'videos',
   COMMENTS: 'comments',
   COMMENT_ANALYSIS: 'comment_analysis',
   ANALYSIS_RUNS: 'analysis_runs',
+  QUESTION_EMBEDDINGS: 'question_embeddings',
+  QUESTION_CLUSTERS: 'question_clusters',
+  QUESTION_CLUSTER_MEMBERS: 'question_cluster_members',
+  LEARNING_FRICTION: 'learning_friction',
 } as const;

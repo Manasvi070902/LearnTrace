@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import analyzeRouter from './routes/analyze';
 import dataRouter from './routes/data';
+import frictionRouter from './routes/friction';
 import { initializeBigQueryTables } from './services/bigquery/bigquery.init';
 import learningSignalsRouter from './routes/learning-signals';
 
@@ -24,6 +25,7 @@ app.get('/api/health', (_req: Request, res: Response) => {
 // Analyze Endpoints
 app.use('/api/analyze', analyzeRouter);
 app.use('/api/analyze', learningSignalsRouter);
+app.use('/api/analyze', frictionRouter);
 
 // Data / Verification Endpoints
 app.use('/api/data', dataRouter);
