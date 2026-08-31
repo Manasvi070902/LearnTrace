@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { AnalyzeVideoResponse, CommentAnalysis, FrictionResponse, YouTubeComment } from '../types';
-import { getCachedLearningSignals, runFrictionAnalysis } from '../services/api';
+import { analyzeLearningSignals, getCachedLearningSignals, runFrictionAnalysis } from '../services/api';
 import { ConfusionMapView } from './ConfusionMapView';
 
 interface DataInspectionViewProps {
@@ -20,6 +20,8 @@ export function DataInspectionView({ data, onReset }: DataInspectionViewProps) {
   const [frictionResult, setFrictionResult] = useState<FrictionResponse | null>(null);
   const [frictionLoading, setFrictionLoading] = useState(false);
   const [frictionError, setFrictionError] = useState<string | null>(null);
+  const [expansionLoading, setExpansionLoading] = useState(false);
+  const [expansionError, setExpansionError] = useState<string | null>(null);
   const totalConversations = totalCommentsFetched + totalRepliesFetched;
   const reportedComments = data.youtubeCommentCount;
   const coverage = reportedComments && reportedComments > 0
@@ -58,6 +60,27 @@ export function DataInspectionView({ data, onReset }: DataInspectionViewProps) {
       setFrictionError(error instanceof Error ? error.message : 'Audience confusion mapping failed.');
     } finally {
       setFrictionLoading(false);
+    }
+  };
+
+  const analyzeMoreConversations = async () => {
+    if (!video) return;
+    setExpansionLoading(true);
+    setExpansionError(null);
+    try {
+      const result = await analyzeLearningSignals(video.videoId);
+      if (result.frictionReport) {
+        setFrictionResult({
+          status: 'success',
+          videoId: result.videoId,
+          report: result.frictionReport,
+          confusionMap: result.confusionMap || [],
+        });
+      }
+    } catch (error) {
+      setExpansionError(error instanceof Error ? error.message : 'Additional AI analysis could not be completed.');
+    } finally {
+      setExpansionLoading(false);
     }
   };
 
@@ -163,14 +186,20 @@ export function DataInspectionView({ data, onReset }: DataInspectionViewProps) {
           <h3>Build Audience Confusion Map</h3>
           <p>Cluster the existing Phase 4 learning signals. This does not classify additional comments.</p>
         </div>
-        <button className="analysis-cta-button" onClick={runAudienceConfusionMap} disabled={frictionLoading || !video}>
-          {frictionLoading ? 'Building Confusion Map...' : 'Build Confusion Map'}
-        </button>
-        <span className="coming-next-label">Only semantic embeddings are generated when they are not already cached.</span>
+        <div className="analysis-actions">
+          <button className="analysis-cta-button" onClick={runAudienceConfusionMap} disabled={frictionLoading || expansionLoading || !video}>
+            {frictionLoading ? 'Building Confusion Map...' : 'Build Confusion Map'}
+          </button>
+          <button className="conversations-toggle" onClick={analyzeMoreConversations} disabled={frictionLoading || expansionLoading || !video}>
+            {expansionLoading ? 'Analyzing More Conversations...' : 'Analyze More Conversations'}
+          </button>
+        </div>
+        <span className="coming-next-label">Additional analysis expands cached coverage to the configured total target.</span>
       </section>
 
       {signalError && <div className="notice-banner error-banner">{signalError}</div>}
       {frictionError && <div className="notice-banner error-banner">{frictionError}</div>}
+      {expansionError && <div className="notice-banner error-banner">{expansionError}</div>}
       {frictionResult?.report && (
         <ConfusionMapView videoId={video!.videoId} report={frictionResult.report} confusionMap={frictionResult.confusionMap || []} />
       )}

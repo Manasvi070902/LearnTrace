@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { PROMPT_VERSION } from '../prompts/comment-analysis.prompt';
 import { analyzeComments, getConfiguredGeminiModel, splitCommentBatches, GEMINI_BATCH_SIZE } from '../services/gemini/comment-analysis.service';
 import { AnalysisRun, completeAnalysisRun, getAnalysisForVideo, getAnalyzedCommentIds, getCommentsForVideo, getDailyAnalysisUsage, insertAnalysisRun, mapAnalysisToRow, upsertCommentAnalysis, videoExists } from '../services/bigquery/bigquery.analysis';
+import { analyzeFrictionForVideo } from '../services/bigquery/bigquery.friction.orchestration';
 
 const router = Router();
 const activeVideos = new Set<string>();
@@ -11,8 +12,32 @@ let lastRequestAt = 0;
 
 export interface SourceComment { comment_id: string; comment_text: string; is_reply: boolean; like_count: number; published_at: string; }
 
-export function selectRepresentativeComments(comments: SourceComment[], cachedIds: Set<string>, limit = 50): SourceComment[] {
-  return selectFromBuckets(comments, limit);
+export interface AnalysisCoveragePlan {
+  availableConversations: number;
+  alreadyAnalyzed: number;
+  targetAnalyzed: number;
+  newConversationsRequired: number;
+  selected: SourceComment[];
+}
+
+function getTargetAnalyzedConversations(): number {
+  return Math.max(0, Math.floor(Number(process.env.GEMINI_TARGET_ANALYZED_CONVERSATIONS || 200)));
+}
+
+export function buildAnalysisCoveragePlan(
+  comments: SourceComment[],
+  analyzedCommentIds: Set<string>,
+  targetAnalyzed = getTargetAnalyzedConversations()
+): AnalysisCoveragePlan {
+  const unanalyzed = comments.filter((comment) => !analyzedCommentIds.has(comment.comment_id));
+  const newConversationsRequired = Math.max(0, targetAnalyzed - analyzedCommentIds.size);
+  return {
+    availableConversations: comments.length,
+    alreadyAnalyzed: analyzedCommentIds.size,
+    targetAnalyzed,
+    newConversationsRequired,
+    selected: selectFromBuckets(unanalyzed, Math.min(newConversationsRequired, unanalyzed.length)),
+  };
 }
 
 function selectFromBuckets(comments: SourceComment[], limit: number): SourceComment[] {
@@ -46,19 +71,19 @@ router.post('/video/:videoId/learning-signals', async (req: Request, res: Respon
     const runId = randomUUID();
     const startedAt = new Date().toISOString();
     const available = await getCommentsForVideo(videoId);
-    const allCached = await getAnalyzedCommentIds(videoId, PROMPT_VERSION, getConfiguredGeminiModel());
-    const selected = selectRepresentativeComments(available, allCached, Math.min(50, Math.max(1, Number(process.env.GEMINI_MAX_COMMENTS_PER_ANALYSIS || 50))));
-    const selectedCachedIds = new Set(selected.filter((comment) => allCached.has(comment.comment_id)).map((comment) => comment.comment_id));
-    const pending = selected.filter((comment) => !selectedCachedIds.has(comment.comment_id));
+    const allCached = await getAnalyzedCommentIds(videoId, PROMPT_VERSION);
+    const plan = buildAnalysisCoveragePlan(available, allCached);
+    const selected = plan.selected;
+    const pending = selected;
     const requests = splitCommentBatches(pending.map((comment) => ({ commentId: comment.comment_id, text: comment.comment_text })), Number(process.env.GEMINI_BATCH_SIZE || GEMINI_BATCH_SIZE)).length;
     const usage = await getDailyAnalysisUsage();
     const dailyRequestLimit = Math.max(0, Number(process.env.GEMINI_MAX_REQUESTS_PER_DAY || 10));
-    if (usage.requestsToday + requests > dailyRequestLimit) {
+    if (requests > Math.max(0, dailyRequestLimit - usage.requestsToday)) {
       activeVideos.delete(videoId); activeAnalysis = false;
-      return res.status(429).json({ status: 'error', error: "LearnTrace's development AI request limit has been reached. Existing analyses remain available." });
+      return res.status(429).json({ status: 'error', error: 'Additional AI analysis could not be completed because the configured development AI limit was reached.' });
     }
-    console.log(`[Learning Signals] LearnTrace AI Pre-flight\nAvailable conversations: ${available.length}\nSelected: ${selected.length}\nCached: ${selectedCachedIds.size}\nRequires Gemini: ${pending.length}\nBatch capacity: ${process.env.GEMINI_BATCH_SIZE || GEMINI_BATCH_SIZE}\nEstimated API requests: ${requests}\nDevelopment requests remaining: ${Math.max(0, dailyRequestLimit - usage.requestsToday)}`);
-    const run: AnalysisRun = { run_id: runId, video_id: videoId, selected_comment_ids: selected.map((comment) => comment.comment_id), comments_selected: selected.length, comments_cached: selectedCachedIds.size, comments_submitted: pending.length, gemini_requests: requests, results_stored: 0, started_at: startedAt, completed_at: null, status: 'running' };
+    console.log(`[Learning Signals] LearnTrace AI Pre-flight\nAvailable conversations: ${plan.availableConversations}\nAlready analyzed: ${plan.alreadyAnalyzed}\nTarget: ${plan.targetAnalyzed}\nNew conversations required: ${plan.newConversationsRequired}\nSelected: ${selected.length}\nBatch size: ${process.env.GEMINI_BATCH_SIZE || GEMINI_BATCH_SIZE}\nEstimated Gemini requests: ${requests}\nRemaining application request budget: ${Math.max(0, dailyRequestLimit - usage.requestsToday)}`);
+    const run: AnalysisRun = { run_id: runId, video_id: videoId, selected_comment_ids: selected.map((comment) => comment.comment_id), comments_selected: selected.length, comments_cached: 0, comments_submitted: pending.length, gemini_requests: requests, results_stored: 0, started_at: startedAt, completed_at: null, status: 'running' };
     await insertAnalysisRun(run);
     let requestsMade = 0;
     let fresh = [];
@@ -84,15 +109,30 @@ router.post('/video/:videoId/learning-signals', async (req: Request, res: Respon
       throw error;
     } finally { activeVideos.delete(videoId); activeAnalysis = false; }
     const analyses = await getAnalysisForVideo(videoId, PROMPT_VERSION, getConfiguredGeminiModel());
+    const frictionReport = await analyzeFrictionForVideo(videoId);
     return res.json({
-      status: 'success', videoId, availableComments: available.length, commentsSelected: selected.length,
-      commentsCached: selectedCachedIds.size, commentsSubmitted: pending.length, geminiRequests: requests,
+      status: 'success', videoId, availableComments: plan.availableConversations, alreadyAnalyzed: plan.alreadyAnalyzed,
+      targetAnalyzed: plan.targetAnalyzed, newConversationsRequired: plan.newConversationsRequired, commentsSelected: selected.length,
+      commentsCached: 0, commentsSubmitted: pending.length, geminiRequests: requests,
       resultsStored: fresh.length, commentsAnalyzed: analyses.length,
       learningSignals: analyses.filter((analysis) => analysis.is_learning_signal).length,
       intentCounts: analyses.reduce<Record<string, number>>((counts, analysis) => {
         counts[analysis.intent] = (counts[analysis.intent] || 0) + 1;
         return counts;
       }, {}), analyses,
+      frictionReport: {
+        availableComments: frictionReport.availableComments,
+        aiAnalyzedComments: frictionReport.aiAnalyzedComments,
+        learningSignals: frictionReport.learningSignals,
+        canonicalQuestions: frictionReport.canonicalQuestions,
+        embeddingsGenerated: frictionReport.embeddingsGenerated,
+        embeddingsCached: frictionReport.embeddingsCached,
+        questionClusters: frictionReport.questionClusters,
+        normalizedConcepts: frictionReport.normalizedConcepts,
+        conceptsWithEvidence: frictionReport.conceptsWithEvidence,
+        conceptsInsufficientEvidence: frictionReport.conceptsInsufficientEvidence,
+      },
+      confusionMap: frictionReport.frictionScores,
     });
   } catch (error) {
     activeVideos.delete(videoId);

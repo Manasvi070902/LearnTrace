@@ -601,10 +601,19 @@ body::before {
 }
 
 .analysis-cta-section .coming-next-label {
-  grid-column: 2;
+  grid-column: 1 / -1;
   margin-top: -2px;
-  text-align: center;
   color: var(--color-text-muted);
+}
+
+.analysis-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.analysis-actions .conversations-toggle {
+  cursor: pointer;
 }
 
 .analysis-cta-button,

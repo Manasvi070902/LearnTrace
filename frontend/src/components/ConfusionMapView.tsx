@@ -14,6 +14,9 @@ export function ConfusionMapView({ videoId, report, confusionMap }: ConfusionMap
   const [loadingConcept, setLoadingConcept] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [openEvidence, setOpenEvidence] = useState<Record<string, boolean>>({});
+  const analysisCoverage = report.availableComments > 0
+    ? (report.aiAnalyzedComments / report.availableComments) * 100
+    : 0;
 
   const selectConcept = async (concept: FrictionScore) => {
     setSelectedConcept(concept);
@@ -42,8 +45,9 @@ export function ConfusionMapView({ videoId, report, confusionMap }: ConfusionMap
         <span>Public conversations available: <strong>{report.availableComments.toLocaleString()}</strong></span>
         <span>AI-analyzed conversations: <strong>{report.aiAnalyzedComments.toLocaleString()}</strong></span>
         <span>Learning signals found: <strong>{report.learningSignals.toLocaleString()}</strong></span>
+        <span>Analysis coverage: <strong>{analysisCoverage.toFixed(1)}%</strong></span>
       </div>
-      <p className="early-analysis-note">Early analysis based on {report.aiAnalyzedComments.toLocaleString()} conversations.</p>
+      <p className="early-analysis-note">Analysis based on {report.aiAnalyzedComments.toLocaleString()} public conversations.</p>
 
       {confusionMap.length === 0 ? (
         <div className="notice-banner info-banner">No qualifying learning signals were found in the cached analysis.</div>

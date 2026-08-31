@@ -35,10 +35,11 @@ export function mapAnalysisToRow(videoId: string, analysis: CommentAnalysis, ana
   return { comment_id: analysis.commentId, video_id: videoId, intent: analysis.intent, is_learning_signal: analysis.isLearningSignal, canonical_question: analysis.canonicalQuestion, concept: analysis.concept, confusion_strength: analysis.confusionStrength, confidence: analysis.confidence, reason: analysis.reason, model_name: getConfiguredGeminiModel(), prompt_version: 'v1', analyzed_at: analyzedAt };
 }
 
-export async function getAnalyzedCommentIds(videoId: string, promptVersion: string, modelName: string): Promise<Set<string>> {
+/** Cached Phase 4 results are identified by comment and prompt version. */
+export async function getAnalyzedCommentIds(videoId: string, promptVersion: string): Promise<Set<string>> {
   const [rows] = await getBigQueryClient().query({
-    query: `SELECT comment_id FROM \`${process.env.GOOGLE_CLOUD_PROJECT_ID}.${process.env.BIGQUERY_DATASET}.${TABLE_NAMES.COMMENT_ANALYSIS}\` WHERE video_id = @video_id AND prompt_version = @prompt_version AND model_name = @model_name`,
-    params: { video_id: videoId, prompt_version: promptVersion, model_name: modelName }, location: process.env.BIGQUERY_LOCATION,
+    query: `SELECT comment_id FROM \`${process.env.GOOGLE_CLOUD_PROJECT_ID}.${process.env.BIGQUERY_DATASET}.${TABLE_NAMES.COMMENT_ANALYSIS}\` WHERE video_id = @video_id AND prompt_version = @prompt_version`,
+    params: { video_id: videoId, prompt_version: promptVersion }, location: process.env.BIGQUERY_LOCATION,
   });
   return new Set((rows || []).map((row: { comment_id: string }) => row.comment_id));
 }

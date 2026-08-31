@@ -51,18 +51,35 @@ On startup, LearnTrace verifies the `videos`, `comments`, `comment_analysis`, an
 dataset and creates either table when it is missing. BigQuery initialization failures
 are logged without preventing YouTube analysis from starting.
 
-#### Learning-signal analysis
+#### Learning-signal analysis and coverage expansion
 
 Set `GEMINI_API_KEY` in the backend environment. The key is read only by the server;
 it is never sent to the frontend. The data inspection view's **Analyze Learning
-Signals** action sends up to `GEMINI_MAX_COMMENTS_PER_ANALYSIS` comments (default
-`50`) to Gemini in batches controlled by `GEMINI_BATCH_SIZE` (default `50`), with
-payload-size splitting only when required. Internal request pacing and daily limits
-are controlled by `GEMINI_MAX_REQUESTS_PER_MINUTE` and `GEMINI_MAX_REQUESTS_PER_DAY`.
-Results are validated, versioned as prompt `v1`, and stored in the BigQuery
-`comment_analysis` table. Repeating the action reuses rows already analyzed with
-the same `comment_id`, prompt version, and model name. Run metadata is stored in
-`analysis_runs`; development usage is available at `GET /api/analyze/usage`.
+Signals** action expands analysis to `GEMINI_TARGET_ANALYZED_CONVERSATIONS` total
+cached conversations (default `200`). It selects only the remaining unanalyzed
+comments, in deterministic diverse batches controlled by `GEMINI_BATCH_SIZE`
+(default `50`). Internal request pacing and daily limits are controlled by
+`GEMINI_MAX_REQUESTS_PER_MINUTE` and `GEMINI_MAX_REQUESTS_PER_DAY`. Results are
+validated, versioned as prompt `v1`, and stored in `comment_analysis`; existing
+rows are not re-sent to Gemini. Run metadata is stored in `analysis_runs`.
+
+#### Manual coverage test
+
+Real coverage expansion consumes Gemini API requests. Confirm `GEMINI_API_KEY`,
+`GEMINI_MODEL`, `GEMINI_EMBEDDING_MODEL`, and BigQuery credentials are configured,
+then confirm the current count in `comment_analysis`. Set the following in
+`backend/.env` before starting the app:
+
+```env
+GEMINI_TARGET_ANALYZED_CONVERSATIONS=200
+```
+
+Start the backend and frontend. Open an existing analyzed video and click
+**Analyze More Conversations**. Review the backend's pre-flight summary, then
+allow the run to proceed. Confirm the cached analysis total reaches approximately
+200, open **Build Confusion Map**, inspect any concepts with sufficient evidence,
+open a concept, and use **View Evidence** to confirm the displayed comments came
+from BigQuery.
 
 Inspect results with:
 

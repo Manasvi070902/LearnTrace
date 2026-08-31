@@ -102,6 +102,9 @@ export interface LearningSignalResponse {
   videoId?: string;
   commentsConsidered?: number;
   availableComments?: number;
+  alreadyAnalyzed?: number;
+  targetAnalyzed?: number;
+  newConversationsRequired?: number;
   commentsSelected?: number;
   commentsCached?: number;
   commentsSubmitted?: number;
@@ -111,6 +114,8 @@ export interface LearningSignalResponse {
   learningSignals?: number;
   intentCounts?: Record<string, number>;
   analyses?: CommentAnalysis[];
+  frictionReport?: FrictionReport;
+  confusionMap?: FrictionScore[];
   error?: string;
 }
 
