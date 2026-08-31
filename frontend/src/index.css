@@ -546,7 +546,10 @@ body::before {
 .data-availability-section,
 .analysis-cta-section,
 .conversations-section,
-.signal-validation-section {
+.signal-validation-section,
+.confusion-map-section,
+.concept-detail,
+.debug-section {
   background: rgba(8, 16, 33, 0.62);
   border: 1px solid rgba(56, 189, 248, 0.2);
   border-radius: 14px;
@@ -624,6 +627,64 @@ body::before {
   cursor: not-allowed;
   opacity: 0.62;
 }
+
+.confusion-map-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.confusion-map-heading h3,
+.concept-detail h3 {
+  margin: 4px 0 6px;
+  color: #f8fafc;
+  font-size: 1.2rem;
+}
+
+.confusion-map-heading p,
+.concept-detail p {
+  color: #cbd5e1;
+  font-size: 0.88rem;
+}
+
+.analysis-coverage {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  color: #cbd5e1;
+  font-size: 0.82rem;
+}
+
+.early-analysis-note {
+  color: #7dd3fc !important;
+  font-size: 0.8rem !important;
+}
+
+.concept-row { cursor: pointer; }
+.concept-row:hover { background: rgba(56, 189, 248, 0.08); }
+
+.friction-status {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.friction-status.low { background: rgba(52, 211, 153, 0.16); color: #6ee7b7; }
+.friction-status.moderate { background: rgba(250, 204, 21, 0.16); color: #fde68a; }
+.friction-status.high { background: rgba(251, 146, 60, 0.16); color: #fdba74; }
+.friction-status.critical { background: rgba(248, 113, 113, 0.16); color: #fca5a5; }
+.friction-status.insufficient-evidence { background: rgba(148, 163, 184, 0.16); color: #cbd5e1; }
+
+.concept-detail { margin-top: 6px; }
+.concept-detail h4 { color: #7dd3fc; font-size: 0.75rem; letter-spacing: 0.08em; margin-top: 16px; }
+.question-cluster { padding: 16px 0; border-bottom: 1px solid rgba(148, 163, 184, 0.16); }
+.cluster-question { color: #f8fafc !important; font-weight: 600; margin-bottom: 3px; }
+.question-cluster .conversations-toggle { margin-top: 10px; cursor: pointer; }
+.evidence-list { margin: 12px 0 0 20px; color: #cbd5e1; font-size: 0.86rem; }
+.evidence-list li { margin: 8px 0; }
+.debug-section { display: flex; justify-content: flex-end; padding: 12px 16px; }
 
 .signal-validation-section h3 {
   margin: 4px 0 8px;

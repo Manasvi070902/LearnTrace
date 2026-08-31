@@ -9,7 +9,9 @@
 import { Router, Request, Response } from 'express';
 import { videoExists } from '../services/bigquery/bigquery.analysis';
 import { analyzeFrictionForVideo, getFrictionAnalysisForVideo } from '../services/bigquery/bigquery.friction.orchestration';
-import { getVideoClusters, getClusterMembers } from '../services/bigquery/bigquery.friction';
+import { getVideoClusters, getClusterEvidence } from '../services/bigquery/bigquery.friction';
+import { normalizeConcept } from '../services/clustering/concept-normalizer';
+import { CLUSTERING_VERSION } from '../services/clustering/clustering.service';
 
 const router = Router();
 
@@ -122,8 +124,8 @@ router.get('/video/:videoId/friction/concept/:concept/clusters', async (req: Req
 
   try {
     // Get all clusters for the video
-    const allClusters = await getVideoClusters(videoId, 'v1'); // Hardcoded to v1 for now
-    const conceptClusters = allClusters.filter((c) => c.primary_concept === concept);
+    const allClusters = await getVideoClusters(videoId, CLUSTERING_VERSION);
+    const conceptClusters = allClusters.filter((c) => normalizeConcept(c.primary_concept) === concept);
 
     if (!conceptClusters.length) {
       return res.status(404).json({
@@ -135,10 +137,10 @@ router.get('/video/:videoId/friction/concept/:concept/clusters', async (req: Req
     // For each cluster, get member evidence
     const clustersWithEvidence = await Promise.all(
       conceptClusters.map(async (cluster) => {
-        const members = await getClusterMembers(cluster.cluster_id);
+        const evidence = await getClusterEvidence(cluster.cluster_id);
         return {
           ...cluster,
-          members,
+          evidence,
         };
       })
     );

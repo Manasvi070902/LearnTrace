@@ -44,6 +44,12 @@ export interface ClusterMemberRow {
   created_at: string;
 }
 
+export interface ClusterEvidenceRow extends ClusterMemberRow {
+  comment_text: string;
+  is_reply: boolean;
+  published_at: string;
+}
+
 /**
  * Store cluster results in BigQuery.
  * Replaces existing clusters for the same video and clustering version.
@@ -55,6 +61,22 @@ export async function storeClusters(rows: ClusterRow[]): Promise<void> {
   const projectId = process.env.GOOGLE_CLOUD_PROJECT_ID!;
   const datasetId = process.env.BIGQUERY_DATASET!;
   const table = `\`${projectId}.${datasetId}.${TABLE_NAMES.QUESTION_CLUSTERS}\``;
+  const membersTable = `\`${projectId}.${datasetId}.${TABLE_NAMES.QUESTION_CLUSTER_MEMBERS}\``;
+  const videoId = rows[0].video_id;
+  const clusteringVersion = rows[0].clustering_version;
+
+  // Each run replaces this video's derived view; source comments and analyses
+  // are never changed.
+  await bq.query({
+    query: `DELETE FROM ${membersTable} WHERE video_id = @video_id`,
+    params: { video_id: videoId },
+    location: process.env.BIGQUERY_LOCATION,
+  });
+  await bq.query({
+    query: `DELETE FROM ${table} WHERE video_id = @video_id AND clustering_version = @clustering_version`,
+    params: { video_id: videoId, clustering_version: clusteringVersion },
+    location: process.env.BIGQUERY_LOCATION,
+  });
 
   await bq.query({
     query: `
@@ -88,7 +110,7 @@ export async function storeClusters(rows: ClusterRow[]): Promise<void> {
           question_count: 'INT64',
           average_confusion_strength: 'FLOAT64',
           average_confidence: 'FLOAT64',
-          representative_comment_ids: 'STRING',
+          representative_comment_ids: ['STRING'],
           created_at: 'STRING',
           clustering_version: 'STRING',
         },
@@ -323,5 +345,38 @@ export async function getClusterMembers(clusterId: string): Promise<ClusterMembe
     video_id: row.video_id,
     similarity_score: row.similarity_score,
     created_at: row.created_at,
+  }));
+}
+
+/** Return the original stored comments that substantiate a question cluster. */
+export async function getClusterEvidence(clusterId: string): Promise<ClusterEvidenceRow[]> {
+  const bq = getBigQueryClient();
+  const projectId = process.env.GOOGLE_CLOUD_PROJECT_ID!;
+  const datasetId = process.env.BIGQUERY_DATASET!;
+
+  const [rows] = await bq.query({
+    query: `
+      SELECT m.cluster_id, m.comment_id, m.video_id, m.similarity_score,
+             CAST(m.created_at AS STRING) AS created_at,
+             c.comment_text, c.is_reply, CAST(c.published_at AS STRING) AS published_at
+      FROM \`${projectId}.${datasetId}.${TABLE_NAMES.QUESTION_CLUSTER_MEMBERS}\` m
+      INNER JOIN \`${projectId}.${datasetId}.${TABLE_NAMES.COMMENTS}\` c
+        ON c.comment_id = m.comment_id AND c.video_id = m.video_id
+      WHERE m.cluster_id = @cluster_id
+      ORDER BY m.similarity_score DESC, c.published_at
+    `,
+    params: { cluster_id: clusterId },
+    location: process.env.BIGQUERY_LOCATION,
+  });
+
+  return (rows || []).map((row: any) => ({
+    cluster_id: row.cluster_id,
+    comment_id: row.comment_id,
+    video_id: row.video_id,
+    similarity_score: row.similarity_score,
+    created_at: row.created_at,
+    comment_text: row.comment_text,
+    is_reply: row.is_reply,
+    published_at: row.published_at,
   }));
 }

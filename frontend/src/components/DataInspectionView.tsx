@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { AnalyzeVideoResponse, CommentAnalysis, YouTubeComment } from '../types';
-import { analyzeLearningSignals } from '../services/api';
+import { AnalyzeVideoResponse, CommentAnalysis, FrictionResponse, YouTubeComment } from '../types';
+import { getCachedLearningSignals, runFrictionAnalysis } from '../services/api';
+import { ConfusionMapView } from './ConfusionMapView';
 
 interface DataInspectionViewProps {
   data: AnalyzeVideoResponse;
@@ -15,7 +16,10 @@ export function DataInspectionView({ data, onReset }: DataInspectionViewProps) {
   const [signalFilter, setSignalFilter] = useState('all');
   const [signalLoading, setSignalLoading] = useState(false);
   const [signalError, setSignalError] = useState<string | null>(null);
-  const [signalRun, setSignalRun] = useState<{ availableComments: number; commentsSelected: number; commentsCached: number; commentsSubmitted: number; geminiRequests: number; resultsStored: number } | null>(null);
+  const [showDebug, setShowDebug] = useState(false);
+  const [frictionResult, setFrictionResult] = useState<FrictionResponse | null>(null);
+  const [frictionLoading, setFrictionLoading] = useState(false);
+  const [frictionError, setFrictionError] = useState<string | null>(null);
   const totalConversations = totalCommentsFetched + totalRepliesFetched;
   const reportedComments = data.youtubeCommentCount;
   const coverage = reportedComments && reportedComments > 0
@@ -29,18 +33,31 @@ export function DataInspectionView({ data, onReset }: DataInspectionViewProps) {
     }));
   };
 
-  const runSignalAnalysis = async () => {
+  const loadCachedSignals = async () => {
     if (!video) return;
     setSignalLoading(true);
     setSignalError(null);
     try {
-      const result = await analyzeLearningSignals(video.videoId);
+      const result = await getCachedLearningSignals(video.videoId);
       setSignalRows(result.analyses || []);
-      setSignalRun({ availableComments: result.availableComments || 0, commentsSelected: result.commentsSelected || 0, commentsCached: result.commentsCached || 0, commentsSubmitted: result.commentsSubmitted || 0, geminiRequests: result.geminiRequests || 0, resultsStored: result.resultsStored || 0 });
+      setShowDebug(true);
     } catch (error) {
       setSignalError(error instanceof Error ? error.message : 'Learning-signal analysis failed.');
     } finally {
       setSignalLoading(false);
+    }
+  };
+
+  const runAudienceConfusionMap = async () => {
+    if (!video) return;
+    setFrictionLoading(true);
+    setFrictionError(null);
+    try {
+      setFrictionResult(await runFrictionAnalysis(video.videoId));
+    } catch (error) {
+      setFrictionError(error instanceof Error ? error.message : 'Audience confusion mapping failed.');
+    } finally {
+      setFrictionLoading(false);
     }
   };
 
@@ -142,18 +159,28 @@ export function DataInspectionView({ data, onReset }: DataInspectionViewProps) {
 
       <section className="analysis-cta-section">
         <div>
-          <span className="section-kicker">READY FOR LEARNING ANALYSIS</span>
-          <h3>Ready for Learning Analysis</h3>
-          <p>{totalConversations.toLocaleString()} public audience conversations are ready for learning-signal analysis.</p>
+          <span className="section-kicker">CACHED LEARNING SIGNALS</span>
+          <h3>Build Audience Confusion Map</h3>
+          <p>Cluster the existing Phase 4 learning signals. This does not classify additional comments.</p>
         </div>
-        <button className="analysis-cta-button" onClick={runSignalAnalysis} disabled={signalLoading || !video}>
-          {signalLoading ? 'Analyzing Learning Signals...' : 'Analyze Learning Signals'}
+        <button className="analysis-cta-button" onClick={runAudienceConfusionMap} disabled={frictionLoading || !video}>
+          {frictionLoading ? 'Building Confusion Map...' : 'Build Confusion Map'}
         </button>
-        <span className="coming-next-label">AI analysis currently uses up to 50 public conversations for validation.</span>
+        <span className="coming-next-label">Only semantic embeddings are generated when they are not already cached.</span>
       </section>
 
       {signalError && <div className="notice-banner error-banner">{signalError}</div>}
-      {signalRows.length > 0 && (
+      {frictionError && <div className="notice-banner error-banner">{frictionError}</div>}
+      {frictionResult?.report && (
+        <ConfusionMapView videoId={video!.videoId} report={frictionResult.report} confusionMap={frictionResult.confusionMap || []} />
+      )}
+
+      <section className="debug-section">
+        <button className="conversations-toggle" onClick={() => void loadCachedSignals()} disabled={signalLoading || !video}>
+          {signalLoading ? 'Loading Validation Data...' : showDebug ? 'Refresh Phase 4 Validation' : 'View Phase 4 Validation (Debug)'}
+        </button>
+      </section>
+      {showDebug && signalRows.length > 0 && (
         <section className="signal-validation-section">
           <div className="conversations-section-header">
             <div>
@@ -163,7 +190,6 @@ export function DataInspectionView({ data, onReset }: DataInspectionViewProps) {
             </div>
             <div className="signal-summary">{signalRows.length} analyzed · {signalRows.filter((row) => row.is_learning_signal).length} learning signals</div>
           </div>
-          {signalRun && <div className="signal-run-stats"><span>Available: {signalRun.availableComments.toLocaleString()}</span><span>Selected: {signalRun.commentsSelected}</span><span>Cached: {signalRun.commentsCached}</span><span>Submitted: {signalRun.commentsSubmitted}</span><span>Gemini requests: {signalRun.geminiRequests}</span><span>Stored: {signalRun.resultsStored}</span></div>}
           <div className="signal-filters">
             {['all', 'conceptual_confusion', 'learning_question', 'technical_error', 'content_request', 'praise_noise'].map((filter) => (
               <button key={filter} className={signalFilter === filter ? 'signal-filter active' : 'signal-filter'} onClick={() => setSignalFilter(filter)}>

@@ -5,10 +5,12 @@
  * Uses Google's Gemini embedding API with local caching in BigQuery.
  */
 
-export const DEFAULT_EMBEDDING_MODEL = 'embedding-001';
-
 export function getConfiguredEmbeddingModel(): string {
-  return process.env.GEMINI_EMBEDDING_MODEL || DEFAULT_EMBEDDING_MODEL;
+  const model = process.env.GEMINI_EMBEDDING_MODEL?.trim();
+  if (!model) {
+    throw new Error('GEMINI_EMBEDDING_MODEL is not configured on the server.');
+  }
+  return model;
 }
 
 function getRequiredApiKey(): string {
@@ -24,33 +26,8 @@ export interface EmbeddingResult {
 }
 
 /**
- * Simple hash-based vector for testing (when API not available)
- */
-function generateMockEmbedding(text: string, dimension = 768): number[] {
-  const hash = text.split('').reduce((h, c) => {
-    const code = c.charCodeAt(0);
-    return ((h << 5) - h) + code;
-  }, 0);
-  
-  const rng = (seed: number) => {
-    const x = Math.sin(seed) * 10000;
-    return x - Math.floor(x);
-  };
-  
-  const embedding: number[] = [];
-  for (let i = 0; i < dimension; i++) {
-    embedding.push(rng(hash + i));
-  }
-  
-  // Normalize
-  const norm = Math.sqrt(embedding.reduce((sum, v) => sum + v * v, 0));
-  return embedding.map(v => v / (norm || 1));
-}
-
-/**
- * Generate embeddings for a batch of texts using Gemini.
- * Falls back to mock embeddings if API is unavailable.
- * @throws if API key is missing
+ * Generate real embeddings for a batch of texts using the configured Gemini model.
+ * @throws if the provider cannot return one valid embedding for every input.
  */
 export async function generateEmbeddings(texts: string[], model = getConfiguredEmbeddingModel()): Promise<EmbeddingResult[]> {
   if (!texts.length) return [];
@@ -59,43 +36,23 @@ export async function generateEmbeddings(texts: string[], model = getConfiguredE
   const { GoogleGenAI } = await import('@google/genai');
   const client = new GoogleGenAI({ apiKey });
 
-  const results: EmbeddingResult[] = [];
+  const response = await client.models.embedContent({
+    model,
+    contents: texts.map((text) => ({ parts: [{ text }] })),
+  });
 
-  for (const text of texts) {
-    try {
-      // Try with "models/" prefix
-      const modelName = model.startsWith('models/') ? model : `models/${model}`;
-      
-      const response = await client.models.embedContent({
-        model: modelName,
-        contents: {
-          parts: [{ text }],
-        },
-      });
-
-      if (!response.embeddings?.[0]?.values) {
-        throw new Error(`No embedding returned for text`);
-      }
-
-      results.push({
-        text,
-        embedding: Array.from(response.embeddings[0].values),
-        model,
-      });
-    } catch (apiError) {
-      // Fallback to mock embedding for testing
-      console.log(
-        `[Embedding] API unavailable for '${text.substring(0, 40)}...', using mock embedding for testing`
-      );
-      results.push({
-        text,
-        embedding: generateMockEmbedding(text),
-        model: `${model}-mock`,
-      });
-    }
+  const embeddings = response.embeddings || [];
+  if (embeddings.length !== texts.length) {
+    throw new Error(`Embedding provider returned ${embeddings.length} embeddings for ${texts.length} questions.`);
   }
 
-  return results;
+  return embeddings.map((result, index) => {
+    const embedding = result.values ? Array.from(result.values) : [];
+    if (!embedding.length || !embedding.every(Number.isFinite)) {
+      throw new Error(`Embedding provider returned an invalid embedding for question ${index + 1}.`);
+    }
+    return { text: texts[index], embedding, model };
+  });
 }
 
 /**

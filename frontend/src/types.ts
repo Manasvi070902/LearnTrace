@@ -113,3 +113,55 @@ export interface LearningSignalResponse {
   analyses?: CommentAnalysis[];
   error?: string;
 }
+
+export interface FrictionScore {
+  video_id: string;
+  normalized_concept: string;
+  learning_friction_score: number | null;
+  friction_level: 'Low' | 'Moderate' | 'High' | 'Critical' | 'Insufficient Evidence';
+  question_count: number;
+  cluster_count: number;
+  evidence_count: number;
+}
+
+export interface FrictionReport {
+  availableComments: number;
+  aiAnalyzedComments: number;
+  learningSignals: number;
+  canonicalQuestions: number;
+  embeddingsGenerated: number;
+  embeddingsCached: number;
+  questionClusters: number;
+  normalizedConcepts: number;
+  conceptsWithEvidence: number;
+  conceptsInsufficientEvidence: number;
+}
+
+export interface FrictionResponse {
+  status: 'success' | 'error';
+  videoId?: string;
+  report?: FrictionReport;
+  confusionMap?: FrictionScore[];
+  error?: string;
+}
+
+export interface ClusterEvidence {
+  comment_id: string;
+  comment_text: string;
+  is_reply: boolean;
+  published_at: string;
+  similarity_score: number;
+}
+
+export interface QuestionClusterDetail {
+  cluster_id: string;
+  cluster_label: string;
+  question_count: number;
+  evidence: ClusterEvidence[];
+}
+
+export interface ConceptClustersResponse {
+  status: 'success' | 'error';
+  clusters?: QuestionClusterDetail[];
+  error?: string;
+}

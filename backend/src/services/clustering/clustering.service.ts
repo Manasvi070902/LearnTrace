@@ -82,6 +82,7 @@ export function clusterQuestions(
       }
     }
 
+    cluster.cluster_label = getRepresentativeLabel(cluster.members);
     clusters.push(cluster);
   }
 

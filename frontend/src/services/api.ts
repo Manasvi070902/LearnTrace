@@ -1,4 +1,4 @@
-import { AnalyzeVideoResponse, LearningSignalResponse, VideoStats } from '../types';
+import { AnalyzeVideoResponse, ConceptClustersResponse, FrictionResponse, LearningSignalResponse, VideoStats } from '../types';
 
 const API_BASE_URL = 'http://localhost:3001/api';
 
@@ -60,4 +60,27 @@ export async function analyzeLearningSignals(videoId: string): Promise<LearningS
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || `Learning-signal analysis failed (${response.status}).`);
   return data as LearningSignalResponse;
+}
+
+export async function getCachedLearningSignals(videoId: string): Promise<LearningSignalResponse> {
+  const response = await fetch(`${API_BASE_URL}/analyze/video/${encodeURIComponent(videoId)}/learning-signals`);
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `Cached learning signals failed (${response.status}).`);
+  return data as LearningSignalResponse;
+}
+
+export async function runFrictionAnalysis(videoId: string): Promise<FrictionResponse> {
+  const response = await fetch(`${API_BASE_URL}/analyze/video/${encodeURIComponent(videoId)}/friction`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `Friction analysis failed (${response.status}).`);
+  return data as FrictionResponse;
+}
+
+export async function getConceptClusters(videoId: string, concept: string): Promise<ConceptClustersResponse> {
+  const response = await fetch(`${API_BASE_URL}/analyze/video/${encodeURIComponent(videoId)}/friction/concept/${encodeURIComponent(concept)}/clusters`);
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `Concept detail failed (${response.status}).`);
+  return data as ConceptClustersResponse;
 }

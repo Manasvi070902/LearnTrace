@@ -21,10 +21,10 @@ export interface StoredEmbedding {
 
 /**
  * Check if an embedding already exists for a canonical question.
- * Cache key: comment_id + canonical_question + embedding_model + prompt_version
+ * The canonical question, model, and prompt version form the cache key so the
+ * same question can be reused across multiple comments and videos.
  */
 export async function getStoredEmbedding(
-  commentId: string,
   canonicalQuestion: string,
   embeddingModel: string,
   promptVersion: string
@@ -37,14 +37,13 @@ export async function getStoredEmbedding(
     query: `
       SELECT comment_id, video_id, canonical_question, concept, embedding, embedding_model, prompt_version, CAST(created_at AS STRING) AS created_at
       FROM \`${projectId}.${datasetId}.${TABLE_NAMES.QUESTION_EMBEDDINGS}\`
-      WHERE comment_id = @comment_id
-        AND canonical_question = @canonical_question
+      WHERE canonical_question = @canonical_question
         AND embedding_model = @embedding_model
         AND prompt_version = @prompt_version
+      ORDER BY created_at DESC
       LIMIT 1
     `,
     params: {
-      comment_id: commentId,
       canonical_question: canonicalQuestion,
       embedding_model: embeddingModel,
       prompt_version: promptVersion,
@@ -80,7 +79,7 @@ export interface EmbeddingRow {
 
 /**
  * Store embeddings in BigQuery.
- * Uses MERGE to avoid duplicates based on cache identity.
+ * Uses MERGE to avoid duplicates for the same canonical question and model.
  */
 export async function storeEmbeddings(rows: EmbeddingRow[]): Promise<void> {
   if (!rows.length) return;
@@ -94,8 +93,7 @@ export async function storeEmbeddings(rows: EmbeddingRow[]): Promise<void> {
     query: `
       MERGE ${table} AS target
       USING UNNEST(@rows) AS source
-      ON target.comment_id = source.comment_id
-        AND target.canonical_question = source.canonical_question
+      ON target.canonical_question = source.canonical_question
         AND target.embedding_model = source.embedding_model
         AND target.prompt_version = source.prompt_version
       WHEN MATCHED THEN

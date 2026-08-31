@@ -104,6 +104,25 @@ router.post('/video/:videoId/learning-signals', async (req: Request, res: Respon
   }
 });
 
+/** Read cached Phase 4 results for development validation; never calls Gemini. */
+router.get('/video/:videoId/learning-signals', async (req: Request, res: Response) => {
+  const videoId = typeof req.params.videoId === 'string' ? req.params.videoId : '';
+  if (!videoId) return res.status(400).json({ status: 'error', error: 'Missing videoId.' });
+  try {
+    const analyses = await getAnalysisForVideo(videoId, PROMPT_VERSION, getConfiguredGeminiModel());
+    return res.json({
+      status: 'success',
+      videoId,
+      commentsAnalyzed: analyses.length,
+      learningSignals: analyses.filter((analysis) => analysis.is_learning_signal).length,
+      analyses,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Could not retrieve cached learning signals.';
+    return res.status(500).json({ status: 'error', error: message });
+  }
+});
+
 router.get('/usage', async (_req: Request, res: Response) => {
   try {
     const usage = await getDailyAnalysisUsage();
