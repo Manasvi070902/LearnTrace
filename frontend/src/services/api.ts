@@ -1,4 +1,4 @@
-import { AnalyzeVideoResponse, ConceptClustersResponse, FrictionResponse, LearningSignalResponse, VideoStats } from '../types';
+import { AnalyzeVideoResponse, ConceptClustersResponse, DiagnosisResponse, FrictionResponse, LearningSignalResponse, VideoStats } from '../types';
 
 const API_BASE_URL = 'http://localhost:3001/api';
 
@@ -83,4 +83,18 @@ export async function getConceptClusters(videoId: string, concept: string): Prom
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || `Concept detail failed (${response.status}).`);
   return data as ConceptClustersResponse;
+}
+
+export async function getConceptDiagnosis(videoId: string, concept: string): Promise<DiagnosisResponse> {
+  const response = await fetch(`${API_BASE_URL}/analyze/video/${encodeURIComponent(videoId)}/concepts/${encodeURIComponent(concept)}/diagnosis`);
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || 'Could not load AI interpretation.');
+  return data as DiagnosisResponse;
+}
+
+export async function generateConceptDiagnosis(videoId: string, concept: string): Promise<DiagnosisResponse> {
+  const response = await fetch(`${API_BASE_URL}/analyze/video/${encodeURIComponent(videoId)}/concepts/${encodeURIComponent(concept)}/diagnosis`, { method: 'POST' });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || 'AI interpretation is temporarily unavailable.');
+  return data as DiagnosisResponse;
 }

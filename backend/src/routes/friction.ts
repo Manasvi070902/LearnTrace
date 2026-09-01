@@ -12,6 +12,8 @@ import { analyzeFrictionForVideo, getFrictionAnalysisForVideo } from '../service
 import { getVideoClusters, getClusterEvidence } from '../services/bigquery/bigquery.friction';
 import { normalizeConcept } from '../services/clustering/concept-normalizer';
 import { CLUSTERING_VERSION } from '../services/clustering/clustering.service';
+import { getConfiguredDiagnosisModel, buildEvidencePacket, fingerprintEvidence, generateAiInterpretation, isInterpretationEligible, PHASE6_DIAGNOSIS_VERSION } from '../services/phase6/interpretation.service';
+import { getCachedDiagnosis, storeDiagnosis } from '../services/bigquery/bigquery.diagnosis';
 
 const router = Router();
 
@@ -161,6 +163,59 @@ router.get('/video/:videoId/friction/concept/:concept/clusters', async (req: Req
       videoId,
       concept,
     });
+  }
+});
+
+async function getInterpretationContext(videoId: string, concept: string) {
+  const scores = await getFrictionAnalysisForVideo(videoId);
+  const score = scores?.find((item) => item.normalized_concept === concept);
+  if (!score) return null;
+  const clusters = (await getVideoClusters(videoId, CLUSTERING_VERSION))
+    .filter((cluster) => normalizeConcept(cluster.primary_concept) === concept);
+  return { score, clusters };
+}
+
+const insufficientInterpretation = () => ({
+  eligible: false,
+  message: 'Not enough repeated evidence for an AI interpretation yet.',
+  supportingText: 'LearnTrace needs recurring evidence of the same learning difficulty before suggesting a learning gap or educational action.',
+});
+
+router.get('/video/:videoId/concepts/:concept/diagnosis', async (req: Request, res: Response) => {
+  try {
+    const videoId = String(req.params.videoId);
+    const concept = String(req.params.concept);
+    const context = await getInterpretationContext(videoId, concept);
+    if (!context) return res.status(404).json({ status: 'error', error: 'Concept was not found in stored Phase 5 data.' });
+    if (!isInterpretationEligible(context.score, context.clusters)) return res.json({ status: 'success', ...insufficientInterpretation() });
+    const clusters = await Promise.all(context.clusters.map(async (cluster) => ({ ...cluster, evidence: await getClusterEvidence(cluster.cluster_id) })));
+    const packet = buildEvidencePacket(videoId, concept, context.score, clusters);
+    const cached = await getCachedDiagnosis(videoId, concept, getConfiguredDiagnosisModel(), fingerprintEvidence(packet));
+    return res.json({ status: 'success', eligible: true, cached: Boolean(cached), interpretation: cached || null, evidence: packet });
+  } catch (error) {
+    return res.status(500).json({ status: 'error', error: error instanceof Error ? error.message : 'Could not retrieve AI interpretation.' });
+  }
+});
+
+router.post('/video/:videoId/concepts/:concept/diagnosis', async (req: Request, res: Response) => {
+  try {
+    const videoId = String(req.params.videoId);
+    const concept = String(req.params.concept);
+    const context = await getInterpretationContext(videoId, concept);
+    if (!context) return res.status(404).json({ status: 'error', error: 'Concept was not found in stored Phase 5 data.' });
+    if (!isInterpretationEligible(context.score, context.clusters)) return res.json({ status: 'success', ...insufficientInterpretation() });
+    const clusters = await Promise.all(context.clusters.map(async (cluster) => ({ ...cluster, evidence: await getClusterEvidence(cluster.cluster_id) })));
+    const packet = buildEvidencePacket(videoId, concept, context.score, clusters);
+    const fingerprint = fingerprintEvidence(packet);
+    const modelName = getConfiguredDiagnosisModel();
+    const cached = await getCachedDiagnosis(videoId, concept, modelName, fingerprint);
+    if (cached) return res.json({ status: 'success', eligible: true, cached: true, interpretation: cached, evidence: packet });
+    const interpretation = await generateAiInterpretation(packet);
+    const row = { ...interpretation, video_id: videoId, concept, concept_key: concept, learning_friction_score: context.score.learning_friction_score!, friction_level: context.score.friction_level, evidence_fingerprint: fingerprint, model_name: modelName, diagnosis_version: PHASE6_DIAGNOSIS_VERSION, created_at: new Date().toISOString() };
+    await storeDiagnosis(row);
+    return res.json({ status: 'success', eligible: true, cached: false, interpretation: row, evidence: packet });
+  } catch {
+    return res.status(503).json({ status: 'error', error: 'AI interpretation is temporarily unavailable.' });
   }
 });
 

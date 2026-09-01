@@ -106,6 +106,23 @@ export const LEARNING_FRICTION_TABLE_SCHEMA: TableField[] = [
   { name: 'scoring_version', type: 'STRING', mode: 'REQUIRED' },
 ];
 
+export const CONCEPT_DIAGNOSIS_TABLE_SCHEMA: TableField[] = [
+  { name: 'video_id', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'concept', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'concept_key', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'learning_friction_score', type: 'FLOAT64', mode: 'REQUIRED' },
+  { name: 'friction_level', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'summary', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'possible_learning_gap', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'recommended_action', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'confidence', type: 'FLOAT64', mode: 'REQUIRED' },
+  { name: 'evidence_cluster_ids', type: 'STRING', mode: 'REPEATED' },
+  { name: 'evidence_fingerprint', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'model_name', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'diagnosis_version', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'created_at', type: 'TIMESTAMP', mode: 'REQUIRED' },
+];
+
 export const TABLE_NAMES = {
   VIDEOS: 'videos',
   COMMENTS: 'comments',
@@ -115,4 +132,5 @@ export const TABLE_NAMES = {
   QUESTION_CLUSTERS: 'question_clusters',
   QUESTION_CLUSTER_MEMBERS: 'question_cluster_members',
   LEARNING_FRICTION: 'learning_friction',
+  CONCEPT_DIAGNOSIS: 'concept_diagnosis',
 } as const;

@@ -15,7 +15,7 @@ function getFrictionWeights(): { volume: number; confusion: number; recurrence: 
   };
 }
 
-function getMinSignalsForFrictionScore(): number {
+export function getMinSignalsForFrictionScore(): number {
   return Number(process.env.MIN_SIGNALS_FOR_FRICTION_SCORE || 3);
 }
 

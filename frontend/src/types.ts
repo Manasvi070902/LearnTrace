@@ -172,3 +172,21 @@ export interface ConceptClustersResponse {
   clusters?: QuestionClusterDetail[];
   error?: string;
 }
+
+export interface AiInterpretation {
+  summary: string;
+  possibleLearningGap: string;
+  recommendedAction: string;
+  confidence: number;
+  evidenceClusterIds: string[];
+}
+
+export interface DiagnosisResponse {
+  status: 'success' | 'error';
+  eligible?: boolean;
+  cached?: boolean;
+  message?: string;
+  supportingText?: string;
+  interpretation?: AiInterpretation | null;
+  error?: string;
+}

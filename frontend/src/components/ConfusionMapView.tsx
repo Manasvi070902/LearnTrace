@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { getConceptClusters } from '../services/api';
-import { FrictionReport, FrictionScore, QuestionClusterDetail } from '../types';
+import { generateConceptDiagnosis, getConceptClusters, getConceptDiagnosis } from '../services/api';
+import { AiInterpretation, DiagnosisResponse, FrictionReport, FrictionScore, QuestionClusterDetail } from '../types';
 
 interface ConfusionMapViewProps {
   videoId: string;
@@ -14,6 +14,8 @@ export function ConfusionMapView({ videoId, report, confusionMap }: ConfusionMap
   const [loadingConcept, setLoadingConcept] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [openEvidence, setOpenEvidence] = useState<Record<string, boolean>>({});
+  const [diagnosis, setDiagnosis] = useState<DiagnosisResponse | null>(null);
+  const [generatingDiagnosis, setGeneratingDiagnosis] = useState(false);
   const analysisCoverage = report.availableComments > 0
     ? (report.aiAnalyzedComments / report.availableComments) * 100
     : 0;
@@ -27,14 +29,27 @@ export function ConfusionMapView({ videoId, report, confusionMap }: ConfusionMap
     setLoadingConcept(true);
     setDetailError(null);
     setClusters([]);
+    setDiagnosis(null);
     try {
-      const result = await getConceptClusters(videoId, concept.normalized_concept);
+      const [result, diagnosisResult] = await Promise.all([
+        getConceptClusters(videoId, concept.normalized_concept),
+        getConceptDiagnosis(videoId, concept.normalized_concept),
+      ]);
       setClusters(result.clusters || []);
+      setDiagnosis(diagnosisResult);
     } catch (error) {
       setDetailError(error instanceof Error ? error.message : 'Could not load the supporting comments.');
     } finally {
       setLoadingConcept(false);
     }
+  };
+
+  const generateInterpretation = async () => {
+    if (!selectedConcept) return;
+    setGeneratingDiagnosis(true);
+    try { setDiagnosis(await generateConceptDiagnosis(videoId, selectedConcept.normalized_concept)); }
+    catch (error) { setDiagnosis({ status: 'error', error: error instanceof Error ? error.message : 'AI interpretation is temporarily unavailable.' }); }
+    finally { setGeneratingDiagnosis(false); }
   };
 
   return (
@@ -106,8 +121,24 @@ export function ConfusionMapView({ videoId, report, confusionMap }: ConfusionMap
               )}
             </article>
           ))}
+          <section className="concept-detail ai-interpretation">
+            <span className="section-kicker">LEARNTRACE AI INTERPRETATION</span>
+            {diagnosis?.eligible === false && <><p><strong>Not enough repeated evidence yet.</strong></p><p className="section-secondary-text">{diagnosis.supportingText}</p></>}
+            {diagnosis?.eligible && !diagnosis.interpretation && <button className="conversations-toggle" disabled={generatingDiagnosis} onClick={() => void generateInterpretation()}>{generatingDiagnosis ? 'Generating…' : 'Generate AI Interpretation'}</button>}
+            {diagnosis?.interpretation && <InterpretationContent interpretation={diagnosis.interpretation} />}
+            {diagnosis?.status === 'error' && <p className="section-secondary-text">AI interpretation is temporarily unavailable.</p>}
+          </section>
         </section>
       )}
     </section>
   );
+}
+
+function InterpretationContent({ interpretation }: { interpretation: AiInterpretation }) {
+  return <div>
+    <h4>SUMMARY</h4><p>{interpretation.summary}</p>
+    <h4>POSSIBLE LEARNING GAP</h4><p>{interpretation.possibleLearningGap}</p>
+    <h4>RECOMMENDED ACTION</h4><p>{interpretation.recommendedAction}</p>
+    <h4>CONFIDENCE</h4><p>{Math.round(interpretation.confidence * 100)}%</p>
+  </div>;
 }
