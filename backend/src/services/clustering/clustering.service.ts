@@ -32,6 +32,11 @@ export interface QuestionCluster {
   representative_comment_ids: string[];
 }
 
+/** A question is recurring only when independent learner signals share its cluster. */
+export function countRecurringQuestionClusters(clusters: QuestionCluster[]): number {
+  return clusters.filter((cluster) => cluster.members.length >= 2).length;
+}
+
 /**
  * Cluster questions using greedy single-pass clustering.
  * Higher-confidence questions are more likely to become cluster seeds.

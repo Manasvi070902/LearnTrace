@@ -2,7 +2,7 @@
  * Clustering Service Tests
  */
 
-import { clusterQuestions, QuestionEmbedding, getRepresentativeLabel } from './clustering.service';
+import { clusterQuestions, countRecurringQuestionClusters, QuestionEmbedding, QuestionCluster, getRepresentativeLabel } from './clustering.service';
 
 describe('Clustering Service', () => {
   describe('clusterQuestions', () => {
@@ -147,6 +147,45 @@ describe('Clustering Service', () => {
     it('returns first question for empty array', () => {
       const label = getRepresentativeLabel([]);
       expect(label).toBe('unknown');
+    });
+  });
+
+  describe('recurrence semantics', () => {
+    const clusterWithMembers = (memberCount: number): QuestionCluster => ({
+      cluster_id: `cluster-${memberCount}`,
+      cluster_label: 'Question A',
+      primary_concept: 'Concept',
+      members: Array.from({ length: memberCount }, (_, index) => ({
+        comment_id: `comment-${index}`,
+        canonical_question: 'Question A',
+        concept: 'Concept',
+        embedding: [1, 0],
+        confusion_strength: 0.5,
+        confidence: 0.9,
+      })),
+      average_confusion_strength: 0.5,
+      average_confidence: 0.9,
+      representative_comment_ids: [],
+    });
+
+    it('does not count a one-member cluster as recurring', () => {
+      expect(countRecurringQuestionClusters([clusterWithMembers(1)])).toBe(0);
+    });
+
+    it('counts a two-member cluster as recurring', () => {
+      expect(countRecurringQuestionClusters([clusterWithMembers(2)])).toBe(1);
+    });
+
+    it('keeps three isolated clusters out of recurrence', () => {
+      expect(countRecurringQuestionClusters([clusterWithMembers(1), clusterWithMembers(1), clusterWithMembers(1)])).toBe(0);
+    });
+
+    it('counts one three-member cluster as one recurring question', () => {
+      expect(countRecurringQuestionClusters([clusterWithMembers(3)])).toBe(1);
+    });
+
+    it('counts only repeated clusters in a mixed set', () => {
+      expect(countRecurringQuestionClusters([clusterWithMembers(2), clusterWithMembers(1), clusterWithMembers(4)])).toBe(2);
     });
   });
 });

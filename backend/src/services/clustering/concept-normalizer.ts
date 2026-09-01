@@ -1,97 +1,26 @@
 /**
- * Concept Normalizer
- *
- * Deterministic concept deduplication and normalization.
- * Avoids over-aggressive merging that conflates different concepts.
- */
-
-export const CONCEPT_NORMALIZATION_RULES: Array<{
-  patterns: RegExp[];
-  canonical: string;
-}> = [
-  {
-    patterns: [
-      /^dynamic\s+programming\s+state$/i,
-      /^dp\s+state$/i,
-      /^dp\s+state\s+formation$/i,
-    ],
-    canonical: 'DP State',
-  },
-  {
-    patterns: [
-      /^recurrence\s+relation$/i,
-      /^recurrence\s+derivation$/i,
-      /^recurrence$/i,
-    ],
-    canonical: 'Recurrence Relation',
-  },
-  {
-    patterns: [
-      /^memoization$/i,
-      /^memoization\s+technique$/i,
-    ],
-    canonical: 'Memoization',
-  },
-  {
-    patterns: [
-      /^time\s+complexity$/i,
-      /^complexity\s+analysis$/i,
-      /^time\s+complexity\s+calculation$/i,
-    ],
-    canonical: 'Time Complexity',
-  },
-  {
-    patterns: [
-      /^two\s+pointer(?:s)?$/i,
-      /^two\s+pointer\s+technique$/i,
-      /^two\s+pointer\s+pattern$/i,
-    ],
-    canonical: 'Two Pointer Technique',
-  },
-  {
-    patterns: [
-      /^sliding\s+window$/i,
-      /^sliding\s+window\s+technique$/i,
-    ],
-    canonical: 'Sliding Window',
-  },
-  {
-    patterns: [
-      /^binary\s+search$/i,
-      /^binary\s+search\s+pattern$/i,
-    ],
-    canonical: 'Binary Search',
-  },
-  {
-    patterns: [
-      /^graph\s+traversal$/i,
-      /^dfs|bfs$/i,
-      /^depth\s+first\s+search|breadth\s+first\s+search$/i,
-    ],
-    canonical: 'Graph Traversal',
-  },
-];
-
-/**
- * Normalize a concept string to a canonical form.
- * If no rule matches, return the original (trimmed).
+ * Conservative lexical normalization only. It deliberately avoids topic
+ * families and semantic aliases, so related learning difficulties stay apart.
  */
 export function normalizeConcept(concept: string | null): string {
   if (!concept) return 'uncategorized';
 
-  const trimmed = concept.trim();
-  if (!trimmed) return 'uncategorized';
+  const cleaned = concept
+    .trim()
+    .replace(/[\s\u00a0]+/g, ' ')
+    .replace(/^[\p{P}\p{S}]+|[\p{P}\p{S}]+$/gu, '')
+    .toLocaleLowerCase();
+  if (!cleaned) return 'uncategorized';
 
-  for (const rule of CONCEPT_NORMALIZATION_RULES) {
-    for (const pattern of rule.patterns) {
-      if (pattern.test(trimmed)) {
-        return rule.canonical;
-      }
-    }
+  const words = cleaned.split(' ');
+  const last = words[words.length - 1];
+  // Singularize only a simple trailing-s plural. Irregular or ambiguous forms
+  // (for example, "series", "analysis", and "class") remain unchanged.
+  if (last.length > 3 && /s$/.test(last) && !/(ss|is|us|ies)$/.test(last)) {
+    words[words.length - 1] = last.slice(0, -1);
   }
 
-  // No rule matched: return original (trimmed)
-  return trimmed;
+  return words.join(' ');
 }
 
 /**

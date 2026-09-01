@@ -15,7 +15,7 @@ import { CommentAnalysisRow, getAnalysisForVideo } from './bigquery.analysis';
 import { getStoredEmbedding, storeEmbeddings, EmbeddingRow, StoredEmbedding } from './bigquery.embedding';
 import { getVideoClusters, storeClusters, storeClusterMembers, getVideoFrictionScores, storeFrictionScores, ClusterRow, ClusterMemberRow, FrictionRow } from './bigquery.friction';
 import { cosineSimilarity, generateEmbeddings, getConfiguredEmbeddingModel } from '../embedding/embedding.service';
-import { clusterQuestions, groupClustersByPrimaryConcept, CLUSTERING_VERSION, QuestionEmbedding, QuestionCluster } from '../clustering/clustering.service';
+import { clusterQuestions, countRecurringQuestionClusters, CLUSTERING_VERSION, QuestionEmbedding, QuestionCluster } from '../clustering/clustering.service';
 import { normalizeConcept } from '../clustering/concept-normalizer';
 import { calculateVideoFriction, SCORING_VERSION, ConceptFrictionInput, validateWeights } from '../friction/friction-scoring.service';
 import { getConfiguredGeminiModel } from '../gemini/comment-analysis.service';
@@ -246,7 +246,9 @@ export async function analyzeFrictionForVideo(videoId: string): Promise<Friction
     frictionInputs.push({
       concept: normalized,
       questionCount: totalQuestions,
-      clusterCount: conceptClusters.length,
+      // Cluster count is the recurrence metric: isolated questions are retained
+      // for evidence, but are not described or scored as recurring.
+      clusterCount: countRecurringQuestionClusters(conceptClusters),
       averageConfusionStrength: totalConfusion / totalQuestions,
       maxObservedQuestionCount: 1, // Will be set in calculateVideoFriction
       maxObservedClusterCount: 1,

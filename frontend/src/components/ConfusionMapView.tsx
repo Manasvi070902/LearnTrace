@@ -17,6 +17,10 @@ export function ConfusionMapView({ videoId, report, confusionMap }: ConfusionMap
   const analysisCoverage = report.availableComments > 0
     ? (report.aiAnalyzedComments / report.availableComments) * 100
     : 0;
+  const recurringQuestionCount = (concept: FrictionScore) => concept.cluster_count;
+  const hasRecurrence = confusionMap.some((concept) => recurringQuestionCount(concept) > 0);
+  const hasScoredFriction = confusionMap.some((concept) => concept.learning_friction_score !== null);
+  const plural = (count: number, singular: string, pluralForm = `${singular}s`) => `${count} ${count === 1 ? singular : pluralForm}`;
 
   const selectConcept = async (concept: FrictionScore) => {
     setSelectedConcept(concept);
@@ -49,11 +53,19 @@ export function ConfusionMapView({ videoId, report, confusionMap }: ConfusionMap
         <span>Curriculum/navigation signals: <strong>{report.curriculumNavigationSignals.toLocaleString()}</strong></span>
         <span>Analysis coverage: <strong>{analysisCoverage.toFixed(1)}%</strong></span>
       </div>
-      <p className="early-analysis-note">Analysis based on {report.aiAnalyzedComments.toLocaleString()} public conversations.</p>
+      <p className="early-analysis-note">Analysis based on {report.aiAnalyzedComments.toLocaleString()} of {report.availableComments.toLocaleString()} public conversations.</p>
 
-      {confusionMap.length === 0 ? (
-        <div className="notice-banner info-banner">No qualifying learning signals were found in the cached analysis.</div>
-      ) : (
+      {report.learningSignals === 0 && (
+        <div className="notice-banner info-banner">No conceptual learning signals detected in the analyzed conversations.</div>
+      )}
+      {report.learningSignals > 0 && !hasRecurrence && !hasScoredFriction && (
+        <div className="notice-banner info-banner"><strong>No recurring learning friction detected yet.</strong> Individual learner questions were found, but no repeated learning difficulty was detected.</div>
+      )}
+      {report.learningSignals > 0 && hasRecurrence && !hasScoredFriction && (
+        <div className="notice-banner info-banner">Recurring learner questions were detected, but there is not yet enough evidence to assign a reliable Learning Friction score.</div>
+      )}
+
+      {confusionMap.length > 0 && (
         <div className="comments-table-wrapper">
           <table className="comments-table confusion-map-table">
             <thead><tr><th>Concept</th><th>Learning Signals</th><th>Recurring Questions</th><th>Learning Friction</th><th>Status</th></tr></thead>
@@ -61,7 +73,7 @@ export function ConfusionMapView({ videoId, report, confusionMap }: ConfusionMap
               <tr key={row.normalized_concept} className="concept-row" onClick={() => void selectConcept(row)}>
                 <td>{row.normalized_concept}</td>
                 <td>{row.question_count}</td>
-                <td>{row.cluster_count}</td>
+                <td>{recurringQuestionCount(row)}</td>
                 <td>{row.learning_friction_score === null ? '—' : row.learning_friction_score.toFixed(0)}</td>
                 <td><span className={`friction-status ${row.friction_level.toLowerCase().replace(/\s+/g, '-')}`}>{row.friction_level}</span></td>
               </tr>
@@ -75,7 +87,7 @@ export function ConfusionMapView({ videoId, report, confusionMap }: ConfusionMap
           <div className="concept-detail-heading">
             <span className="section-kicker">CONCEPT DETAIL</span>
             <h3>{selectedConcept.normalized_concept}</h3>
-            <p>Learning Friction: <strong>{selectedConcept.learning_friction_score === null ? 'Insufficient Evidence' : selectedConcept.learning_friction_score.toFixed(0)}</strong> · {selectedConcept.question_count} learning signals · {selectedConcept.cluster_count} recurring questions</p>
+            <p>Learning Friction: <strong>{selectedConcept.learning_friction_score === null ? 'Insufficient Evidence' : selectedConcept.learning_friction_score.toFixed(0)}</strong> · {plural(selectedConcept.question_count, 'learning signal')} · {plural(clusters.length, 'learner question')} · {plural(recurringQuestionCount(selectedConcept), 'recurring question')}</p>
           </div>
           <h4>WHAT ARE LEARNERS ASKING?</h4>
           {loadingConcept && <p className="section-secondary-text">Loading real source comments…</p>}
