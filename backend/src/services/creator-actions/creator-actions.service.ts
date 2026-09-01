@@ -121,7 +121,27 @@ function feedbackTheme(signal: AudienceSignal): string {
   return 'presentation feedback';
 }
 
+/**
+ * Finds a teaching experience that a learner explicitly praised.  This is
+ * deliberately domain-general: a lesson's subject or concept is never a
+ * "What Worked" theme on its own.
+ */
+function positiveTeachingTheme(signal: AudienceSignal): string | null {
+  const text = normalizedText(signal.comment_text);
+  if (/\b(dry run|trace)\b/.test(text)) return 'helpful dry run';
+  if (/\b(step by step|stepwise|each step|gradual)\b/.test(text)) return 'step-by-step approach';
+  if (/\b(example|examples|demonstration|illustration)\b/.test(text)) return 'worked examples';
+  if (/\b(visual|diagram|animation|drawn)\b/.test(text)) return 'visual explanation';
+  if (/\b(pace|pacing|speed)\b/.test(text)) return 'good pacing';
+  if (/\b(intuition|intuitive)\b/.test(text)) return 'helpful intuition';
+  if (/\b(approach|method|strategy)\b/.test(text)) return 'problem-solving approach';
+  if (/\b(clear|clarity|well explained|explanation)\b/.test(text)) return 'clear explanation';
+  if (/\b(understand|understood|click|helped me)\b/.test(text)) return 'helpful explanation';
+  return null;
+}
+
 function signalTheme(signal: AudienceSignal, disposition: ProductDisposition): string {
+  if (disposition === 'positive_signal') return positiveTeachingTheme(signal) || 'positive feedback';
   if (disposition === 'actionable_feedback') return feedbackTheme(signal);
   // A broad Phase 4 concept such as "Content Opportunity" is useful for
   // categorisation but must not merge different requests into one action.
@@ -134,14 +154,12 @@ function signalTheme(signal: AudienceSignal, disposition: ProductDisposition): s
   if (disposition === 'technical') return 'technical issue';
   if (disposition === 'curriculum_navigation') return 'curriculum guidance';
   if (disposition === 'content_opportunity') return 'requested coverage';
-  if (disposition === 'positive_signal') return 'positive response';
   if (disposition === 'peer_discussion') return 'peer learning discussion';
   return 'other audience signal';
 }
 
 function isSpecificPraise(signal: AudienceSignal): boolean {
-  const text = normalizedText(signal.comment_text);
-  return /\b(explain|example|visual|step by step|clear|understand|click|helped|teaching)\b/.test(text);
+  return positiveTeachingTheme(signal) !== null;
 }
 
 function basePriority(category: CreatorAction['category'], strength: EvidenceStrength, frictionScore: number | null): number {
@@ -160,7 +178,7 @@ function makeAction(
   signals: AudienceSignal[],
 ): CreatorAction {
   const strength = evidenceStrength(signals.length);
-  const evidence = signals.slice(0, 3).map((signal) => ({
+  const evidence = signals.map((signal) => ({
     commentId: signal.comment_id,
     commentText: signal.comment_text,
     isReply: signal.is_reply,
@@ -168,7 +186,7 @@ function makeAction(
   }));
   const templates: Record<Exclude<CreatorAction['category'], 'learning'>, { title: string; summary: string; action: string }> = {
     technical: { title: 'Technical Barrier', summary: `Learners report difficulty with ${theme}.`, action: `Consider checking the example or setup and adding a clarification about ${theme}.` },
-    curriculum_navigation: { title: 'Curriculum / Navigation Signal', summary: `Learners are asking about ${theme}.`, action: `Consider clarifying prerequisites, scope, location, or recommended sequence for ${theme}.` },
+    curriculum_navigation: { title: 'Course & Learning Path', summary: `Learners are asking about ${theme}.`, action: `Consider making guidance about ${theme} easier for learners to find.` },
     content_opportunity: { title: 'Content Opportunity', summary: signals.length === 1 ? `One learner requested ${theme}.` : `Learners are requesting more coverage of ${theme}.`, action: `Consider ${theme} as a future content opportunity.` },
     actionable_feedback: { title: 'Improvement Opportunity', summary: `Audience feedback mentions ${theme}.`, action: `Consider reviewing ${theme} in this part of the presentation.` },
     positive_signal: { title: 'What Worked', summary: `Learners responded positively to ${theme}.`, action: 'Consider preserving this teaching approach in future content.' },
@@ -176,15 +194,24 @@ function makeAction(
     other_useful: { title: 'Other Audience Signal', summary: `Audience members raised a potentially useful signal about ${theme}.`, action: 'Review the supporting comments for context before taking action.' },
   };
   const template = templates[category as Exclude<CreatorAction['category'], 'learning'>];
+  const positive = category === 'positive_signal';
+  const summary = positive
+    ? signals.length === 1
+      ? `One comment specifically praised ${theme.toLocaleLowerCase()}.`
+      : `Several comments specifically praised ${theme.toLocaleLowerCase()}.`
+    : template.summary;
+  const suggestedAction = positive
+    ? `Continue using ${theme.toLocaleLowerCase()} in future lessons.`
+    : template.action;
   return {
     id: `${category}:${normalizedText(theme) || 'general'}`,
     category,
     title: template.title,
-    summary: template.summary,
-    suggestedAction: template.action,
+    summary,
+    suggestedAction,
     evidenceStrength: strength,
     supportingSignalCount: signals.length,
-    concept: signals[0]?.concept || null,
+    concept: positive ? theme : signals[0]?.concept || null,
     canonicalQuestion: signals[0]?.canonical_question || null,
     learningFrictionScore: null,
     learningFrictionStatus: null,
@@ -201,7 +228,12 @@ function groupSignals(signals: AudienceSignal[], disposition: CreatorAction['cat
   for (const signal of signals) {
     if (disposition === 'positive_signal' && !isSpecificPraise(signal)) continue;
     const theme = signalTheme(signal, disposition);
-    const key = normalizedText(theme) || 'general';
+    const normalizedTheme = normalizedText(theme) || 'general';
+    // A neutral display fallback is not evidence that unrelated feedback
+    // comments form a repeated theme.
+    const key = disposition === 'actionable_feedback' && normalizedTheme === 'presentation feedback'
+      ? `${normalizedTheme}:${signal.comment_id}`
+      : normalizedTheme;
     groups.set(key, [...(groups.get(key) || []), signal]);
   }
   return [...groups.entries()]
@@ -269,22 +301,19 @@ function buildLearningInsights(
 function buildUnclusteredLearningInsights(signals: AudienceSignal[], clusters: LearningCluster[]): CreatorAction[] {
   const clusteredCommentIds = new Set(clusters.flatMap((cluster) => cluster.evidence.map((item) => item.comment_id)));
   const unclustered = signals.filter((signal) => deriveProductDisposition(signal) === 'learning' && !clusteredCommentIds.has(signal.comment_id));
-  const groups = new Map<string, AudienceSignal[]>();
-  for (const signal of unclustered) {
-    const theme = signal.concept?.trim() || signal.canonical_question?.trim() || 'uncategorized learner difficulty';
-    const key = normalizedText(theme);
-    groups.set(key, [...(groups.get(key) || []), signal]);
-  }
-  return [...groups.entries()].map(([, members]) => {
-    const concept = members[0].concept?.trim() || null;
-    const evidence = members.slice(0, 3).map((signal) => ({
+  // An absent cluster means recurrence was not proven. In particular, a broad
+  // concept or a missing canonical question must never merge unrelated source
+  // comments into a misleading "3+ learners" signal.
+  return unclustered.map((signal) => {
+    const concept = signal.concept?.trim() || null;
+    const evidence = [{
       commentId: signal.comment_id,
       commentText: signal.comment_text,
       isReply: signal.is_reply,
       parentCommentText: signal.parent_comment_text || null,
-    }));
+    }];
     return {
-      id: `learning:unclustered:${normalizedText(concept || members[0].canonical_question || 'general')}`,
+      id: `learning:unclustered:${signal.comment_id}`,
       category: 'learning' as const,
       title: 'Emerging Learning Signal',
       summary: 'A learner difficulty was detected, but it could not yet be grouped into a recurring canonical question.',
@@ -292,9 +321,9 @@ function buildUnclusteredLearningInsights(signals: AudienceSignal[], clusters: L
       // Shared Phase 4 concepts alone are not verified recurrence. They remain
       // emerging until Phase 5 groups the same learner question.
       evidenceStrength: 'emerging' as const,
-      supportingSignalCount: members.length,
+      supportingSignalCount: 1,
       concept,
-      canonicalQuestion: members[0].canonical_question || null,
+      canonicalQuestion: signal.canonical_question || null,
       learningFrictionScore: null,
       learningFrictionStatus: null,
       recurringQuestionCount: 0,

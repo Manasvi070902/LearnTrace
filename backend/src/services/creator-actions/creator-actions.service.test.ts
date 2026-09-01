@@ -96,6 +96,27 @@ describe('Creator Actions', () => {
     expect(result.creatorActions.every((action) => action.learningFrictionScore === null)).toBe(true);
   });
 
+  it('does not merge generic feedback fallback comments into false recurrence', () => {
+    const result = buildCreatorActions([
+      signal({ comment_id: 'feedback-1', intent: 'feedback', comment_text: 'I have a suggestion about this video.' }),
+      signal({ comment_id: 'feedback-2', intent: 'feedback', comment_text: 'This could be better.' }),
+    ], [], []);
+
+    expect(result.improvementOpportunities).toHaveLength(2);
+    expect(result.improvementOpportunities.every((action) => action.supportingSignalCount === 1)).toBe(true);
+  });
+
+  it('returns every supporting comment for a genuinely repeated action', () => {
+    const result = buildCreatorActions([
+      signal({ comment_id: 'audio-1', intent: 'feedback', comment_text: 'The audio is too quiet.' }),
+      signal({ comment_id: 'audio-2', intent: 'feedback', comment_text: 'Audio volume is low.' }),
+      signal({ comment_id: 'audio-3', intent: 'feedback', comment_text: 'Please improve the sound volume.' }),
+    ], [], []);
+
+    expect(result.improvementOpportunities).toHaveLength(1);
+    expect(result.improvementOpportunities[0].evidence).toHaveLength(3);
+  });
+
   it('does not merge different content requests just because their broad concept matches', () => {
     const result = buildCreatorActions([
       signal({
@@ -112,6 +133,26 @@ describe('Creator Actions', () => {
     expect(result.contentOpportunities.map((action) => action.supportingSignalCount)).toEqual([1, 1]);
   });
 
+  it('preserves the normalized course question separately from mixed raw-comment evidence', () => {
+    const rawComment = 'Your lessons are amazing. If I am starting maths from the beginning, what order should I watch your videos in?';
+    const result = buildCreatorActions([
+      signal({
+        comment_id: 'course-order',
+        intent: 'learning_question',
+        is_learning_signal: true,
+        concept: 'Recommended Learning Order',
+        canonical_question: 'What order should I watch these videos in if I am starting from the beginning?',
+        comment_text: rawComment,
+      }),
+    ], [], []);
+
+    expect(result.curriculumNavigation[0]).toMatchObject({
+      concept: 'Recommended Learning Order',
+      canonicalQuestion: 'What order should I watch these videos in if I am starting from the beginning?',
+    });
+    expect(result.curriculumNavigation[0].evidence[0].commentText).toBe(rawComment);
+  });
+
   it('promotes specific praise but retains generic praise only in accounting', () => {
     const result = buildCreatorActions([
       signal({ comment_id: 'specific', intent: 'praise', comment_text: 'The visual explanation made this click.' }),
@@ -119,6 +160,22 @@ describe('Creator Actions', () => {
     ], [], []);
     expect(result.audienceOverview.positive_signal).toBe(2);
     expect(result.positiveSignals).toHaveLength(1);
+  });
+
+  it('groups positive signals by teaching strength rather than the lesson topic', () => {
+    const result = buildCreatorActions([
+      signal({ comment_id: 'praise-1', intent: 'praise', concept: 'Derivatives', comment_text: 'The step-by-step explanation made this much clearer.' }),
+      signal({ comment_id: 'praise-2', intent: 'praise', concept: 'Derivatives', comment_text: 'The gradual steps really helped me understand the proof.' }),
+      signal({ comment_id: 'praise-3', intent: 'praise', concept: 'Derivatives', comment_text: 'Great derivatives video!' }),
+    ], [], []);
+
+    expect(result.audienceOverview.positive_signal).toBe(3);
+    expect(result.positiveSignals).toHaveLength(1);
+    expect(result.positiveSignals[0]).toMatchObject({
+      concept: 'step-by-step approach',
+      supportingSignalCount: 2,
+    });
+    expect(result.positiveSignals[0].summary).toContain('step-by-step approach');
   });
 
   it('treats a peer explanation as discussion rather than learner confusion', () => {
@@ -145,6 +202,16 @@ describe('Creator Actions', () => {
     ], [], []);
     expect(result.learningInsights).toHaveLength(1);
     expect(result.learningInsights[0]).toMatchObject({ title: 'Emerging Learning Signal', recurringQuestionCount: 0, supportingSignalCount: 1 });
+  });
+
+  it('does not combine unrelated unclustered learner signals into false recurrence', () => {
+    const result = buildCreatorActions([
+      signal({ comment_id: 'u1', intent: 'conceptual_confusion', is_learning_signal: true, concept: 'General learning', canonical_question: null, comment_text: 'I did not follow this step.' }),
+      signal({ comment_id: 'u2', intent: 'conceptual_confusion', is_learning_signal: true, concept: 'General learning', canonical_question: null, comment_text: 'Why is this statement sarcastic?' }),
+      signal({ comment_id: 'u3', intent: 'conceptual_confusion', is_learning_signal: true, concept: 'General learning', canonical_question: null, comment_text: 'I am lost at this point.' }),
+    ], [], []);
+    expect(result.learningInsights).toHaveLength(3);
+    expect(result.learningInsights.every((action) => action.supportingSignalCount === 1 && action.evidenceStrength === 'emerging')).toBe(true);
   });
 
   it('preserves reply context in Creator Action evidence', () => {
