@@ -105,9 +105,36 @@ describe('Creator Actions', () => {
   });
 
   it('treats a peer explanation as discussion rather than learner confusion', () => {
-    const peer = signal({ intent: 'other', is_reply: true, comment_text: 'The reason is that the previous result is reused.' });
+    const peer = signal({ intent: 'other', is_reply: true, comment_text: 'The reason is that the previous result value is reused at each state.' });
     expect(deriveProductDisposition(peer)).toBe('peer_discussion');
     expect(buildCreatorActions([peer], [], []).peerLearning).toHaveLength(1);
+  });
+
+  it('does not turn conversational reply feedback into an improvement action', () => {
+    const conversational = signal({ intent: 'feedback', is_reply: true, comment_text: 'Glad it was helpful!' });
+    const actionable = signal({ intent: 'feedback', is_reply: true, comment_text: 'Could you slow the pace and clarify this step?' });
+    expect(deriveProductDisposition(conversational)).toBe('other_useful');
+    expect(deriveProductDisposition(actionable)).toBe('actionable_feedback');
+  });
+
+  it('does not treat non-educational reply chatter as peer explanation', () => {
+    const chatter = signal({ intent: 'other', is_reply: true, comment_text: 'I think they agreed because they changed it to medium now.' });
+    expect(deriveProductDisposition(chatter)).toBe('other_useful');
+  });
+
+  it('keeps an unclustered conceptual signal visible without calling it recurring', () => {
+    const result = buildCreatorActions([
+      signal({ comment_id: 'unclustered', intent: 'conceptual_confusion', is_learning_signal: true, concept: 'State transition logic', canonical_question: null, comment_text: 'I am still confused about the transition.' }),
+    ], [], []);
+    expect(result.learningInsights).toHaveLength(1);
+    expect(result.learningInsights[0]).toMatchObject({ title: 'Emerging Learning Signal', recurringQuestionCount: 0, supportingSignalCount: 1 });
+  });
+
+  it('preserves reply context in Creator Action evidence', () => {
+    const result = buildCreatorActions([
+      signal({ intent: 'feedback', is_reply: true, parent_comment_text: 'Can someone explain the setup?', comment_text: 'Could you clarify the setup?' }),
+    ], [], []);
+    expect(result.improvementOpportunities[0].evidence[0]).toMatchObject({ isReply: true, parentCommentText: 'Can someone explain the setup?' });
   });
 
   it('orders strong learning friction ahead of other recurring actions', () => {

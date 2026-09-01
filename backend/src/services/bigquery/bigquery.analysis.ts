@@ -58,12 +58,12 @@ export async function getDailyAnalysisUsage(): Promise<{ requestsToday: number; 
   return { requestsToday: Number(row.requests_today || 0), commentsAnalyzedToday: Number(row.comments_analyzed_today || 0), cacheHitsToday: Number(row.cache_hits_today || 0), lastModelUsed: modelRows?.[0]?.model_name || null };
 }
 
-export async function getCommentsForVideo(videoId: string): Promise<Array<{ comment_id: string; comment_text: string; is_reply: boolean; like_count: number; published_at: string }>> {
+export async function getCommentsForVideo(videoId: string): Promise<Array<{ comment_id: string; parent_comment_id: string | null; comment_text: string; is_reply: boolean; like_count: number; published_at: string }>> {
   const [rows] = await getBigQueryClient().query({
-    query: `SELECT comment_id, comment_text, is_reply, like_count, CAST(published_at AS STRING) AS published_at FROM \`${process.env.GOOGLE_CLOUD_PROJECT_ID}.${process.env.BIGQUERY_DATASET}.${TABLE_NAMES.COMMENTS}\` WHERE video_id = @video_id ORDER BY published_at, comment_id`,
+    query: `SELECT comment_id, parent_comment_id, comment_text, is_reply, like_count, CAST(published_at AS STRING) AS published_at FROM \`${process.env.GOOGLE_CLOUD_PROJECT_ID}.${process.env.BIGQUERY_DATASET}.${TABLE_NAMES.COMMENTS}\` WHERE video_id = @video_id ORDER BY published_at, comment_id`,
     params: { video_id: videoId }, location: process.env.BIGQUERY_LOCATION,
   });
-  return rows as Array<{ comment_id: string; comment_text: string; is_reply: boolean; like_count: number; published_at: string }>;
+  return rows as Array<{ comment_id: string; parent_comment_id: string | null; comment_text: string; is_reply: boolean; like_count: number; published_at: string }>;
 }
 
 export async function videoExists(videoId: string): Promise<boolean> {

@@ -197,6 +197,8 @@ export type EvidenceStrength = 'emerging' | 'recurring' | 'strong';
 export interface CreatorActionEvidence {
   commentId: string;
   commentText: string;
+  isReply: boolean;
+  parentCommentText: string | null;
 }
 
 export interface CreatorAction {

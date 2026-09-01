@@ -240,7 +240,15 @@ router.get('/video/:videoId/creator-actions', async (req: Request, res: Response
     const commentsById = new Map(comments.map((comment) => [comment.comment_id, comment]));
     const clusters = await Promise.all(clusterRows.map(async (cluster) => ({
       ...cluster,
-      evidence: await getClusterEvidence(cluster.cluster_id),
+      evidence: (await getClusterEvidence(cluster.cluster_id)).map((item) => {
+        const source = commentsById.get(item.comment_id);
+        return {
+          ...item,
+          parent_comment_text: source?.parent_comment_id
+            ? commentsById.get(source.parent_comment_id)?.comment_text || null
+            : null,
+        };
+      }),
     })));
 
     // Reuse an existing valid Phase 6A interpretation when available. There is
@@ -255,11 +263,17 @@ router.get('/video/:videoId/creator-actions', async (req: Request, res: Response
     }
 
     const result = buildCreatorActions(
-      analyses.map((analysis) => ({
-        ...analysis,
-        comment_text: commentsById.get(analysis.comment_id)?.comment_text || '',
-        is_reply: commentsById.get(analysis.comment_id)?.is_reply || false,
-      })),
+      analyses.map((analysis) => {
+        const source = commentsById.get(analysis.comment_id);
+        return {
+          ...analysis,
+          comment_text: source?.comment_text || '',
+          is_reply: source?.is_reply || false,
+          parent_comment_text: source?.parent_comment_id
+            ? commentsById.get(source.parent_comment_id)?.comment_text || null
+            : null,
+        };
+      }),
       clusters,
       frictionScores || [],
       diagnoses,

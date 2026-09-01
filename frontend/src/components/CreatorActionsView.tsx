@@ -84,6 +84,9 @@ function ActionCard({ action, open, onToggle }: { action: CreatorAction; open: b
     <p><strong>Suggested attention:</strong> {action.suggestedAction}</p>
     <p className="section-secondary-text">{action.supportingSignalCount} supporting signal{action.supportingSignalCount === 1 ? '' : 's'}</p>
     <button className="conversations-toggle" onClick={onToggle}>{open ? 'Hide Evidence' : 'View Evidence'}</button>
-    {open && <ul className="evidence-list">{action.evidence.map((item) => <li key={item.commentId}>{item.commentText}</li>)}</ul>}
+    {open && <ul className="evidence-list">{action.evidence.map((item) => <li key={item.commentId}>
+      {item.commentText}
+      {item.isReply && <span className="reply-context">Reply to: {item.parentCommentText || 'Parent comment unavailable.'}</span>}
+    </li>)}</ul>}
   </article>;
 }
