@@ -273,14 +273,15 @@ function buildUnclusteredLearningInsights(signals: AudienceSignal[], clusters: L
       isReply: signal.is_reply,
       parentCommentText: signal.parent_comment_text || null,
     }));
-    const strength = evidenceStrength(members.length);
     return {
       id: `learning:unclustered:${normalizedText(concept || members[0].canonical_question || 'general')}`,
       category: 'learning' as const,
       title: 'Emerging Learning Signal',
       summary: 'A learner difficulty was detected, but it could not yet be grouped into a recurring canonical question.',
       suggestedAction: 'Review the supporting comment for context and monitor for a similar learner question.',
-      evidenceStrength: strength,
+      // Shared Phase 4 concepts alone are not verified recurrence. They remain
+      // emerging until Phase 5 groups the same learner question.
+      evidenceStrength: 'emerging' as const,
       supportingSignalCount: members.length,
       concept,
       learningFrictionScore: null,
@@ -289,7 +290,7 @@ function buildUnclusteredLearningInsights(signals: AudienceSignal[], clusters: L
       evidenceIds: evidence.map((item) => item.commentId),
       evidence,
       source: 'deterministic' as const,
-      priority: basePriority('learning', strength, null),
+      priority: basePriority('learning', 'emerging', null),
     };
   });
 }

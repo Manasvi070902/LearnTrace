@@ -78,6 +78,14 @@ export async function runFrictionAnalysis(videoId: string): Promise<FrictionResp
   return data as FrictionResponse;
 }
 
+/** Retrieves stored audience results only; it never re-analyzes comments. */
+export async function getCachedFrictionAnalysis(videoId: string): Promise<FrictionResponse> {
+  const response = await fetch(`${API_BASE_URL}/analyze/video/${encodeURIComponent(videoId)}/friction`);
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `Stored audience results failed (${response.status}).`);
+  return data as FrictionResponse;
+}
+
 export async function getConceptClusters(videoId: string, concept: string): Promise<ConceptClustersResponse> {
   const response = await fetch(`${API_BASE_URL}/analyze/video/${encodeURIComponent(videoId)}/friction/concept/${encodeURIComponent(concept)}/clusters`);
   const data = await response.json();

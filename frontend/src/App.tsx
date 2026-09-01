@@ -57,12 +57,14 @@ if (trace.gapDetected) { renderHeatmap(); updateMetrics(); }`}
         <div className="brand-logo" onClick={handleReset} style={{ cursor: 'pointer' }}>
           LearnTrace
         </div>
-        <span className="subtitle-tag">Learning Observability for Educational Content</span>
+        {analysisResult
+          ? <button type="button" className="header-back-button" onClick={handleReset}>&larr; Back to videos</button>
+          : <span className="subtitle-tag">Learning Observability for Educational Content</span>}
       </header>
 
       <main className="main-content">
         {analysisResult ? (
-          <DataInspectionView data={analysisResult} onReset={handleReset} />
+          <DataInspectionView data={analysisResult} />
         ) : (
           <div className="hero-section">
             <p className="tagline">AI-powered learning observability for educational content.</p>
@@ -146,12 +148,6 @@ if (trace.gapDetected) { renderHeatmap(); updateMetrics(); }`}
         <p>&copy; {new Date().getFullYear()} LearnTrace. All rights reserved.</p>
       </footer>
 
-      {/* Decorative Sparkle */}
-      <div className="bottom-sparkle" aria-hidden="true">
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M12 0L14.59 9.41L24 12L14.59 14.59L12 24L9.41 14.59L0 12L9.41 9.41L12 0Z" />
-        </svg>
-      </div>
     </div>
   );
 }
