@@ -15,7 +15,7 @@ import { CommentAnalysisRow, getAnalysisForVideo } from './bigquery.analysis';
 import { getStoredEmbedding, storeEmbeddings, EmbeddingRow, StoredEmbedding } from './bigquery.embedding';
 import { getVideoClusters, storeClusters, storeClusterMembers, getVideoFrictionScores, storeFrictionScores, ClusterRow, ClusterMemberRow, FrictionRow } from './bigquery.friction';
 import { cosineSimilarity, generateEmbeddings, getConfiguredEmbeddingModel } from '../embedding/embedding.service';
-import { clusterQuestions, countRecurringQuestionClusters, CLUSTERING_VERSION, QuestionEmbedding, QuestionCluster } from '../clustering/clustering.service';
+import { clusterQuestions, countRecurringQuestionClusters, getRepresentativeMember, CLUSTERING_VERSION, QuestionEmbedding, QuestionCluster } from '../clustering/clustering.service';
 import { normalizeConcept } from '../clustering/concept-normalizer';
 import { calculateVideoFriction, SCORING_VERSION, ConceptFrictionInput, validateWeights } from '../friction/friction-scoring.service';
 import { getConfiguredGeminiModel } from '../gemini/comment-analysis.service';
@@ -176,6 +176,7 @@ export async function analyzeFrictionForVideo(videoId: string): Promise<Friction
       comment_id: signal.comment_id,
       canonical_question: question,
       concept: signal.concept,
+      intent: signal.intent,
       embedding: stored.embedding,
       confusion_strength: signal.confusion_strength,
       confidence: signal.confidence,
@@ -205,9 +206,11 @@ export async function analyzeFrictionForVideo(videoId: string): Promise<Friction
 
   const memberRows: ClusterMemberRow[] = [];
   for (const cluster of clusters) {
+    const representative = getRepresentativeMember(cluster.members)!;
     for (const member of cluster.members) {
-      const seed = cluster.members[0];
-      const similarity = cosineSimilarity(seed.embedding, member.embedding);
+      // Store similarity to the finalized central representative for stable,
+      // meaningful evidence ordering. It is not used for cluster membership.
+      const similarity = cosineSimilarity(representative.embedding, member.embedding);
       memberRows.push({
         cluster_id: cluster.cluster_id,
         comment_id: member.comment_id,

@@ -6,9 +6,9 @@ const score = (overrides: Partial<FrictionRow> = {}): FrictionRow => ({
   question_count: 5, cluster_count: 2, volume_score: 80, confusion_score: 70, recurrence_score: 60,
   average_confusion_strength: 0.7, evidence_count: 5, calculated_at: '2026-01-01', scoring_version: 'v1', ...overrides,
 });
-const cluster = (id: string, count: number, comments = ['Learner comment']): ClusterRow & { evidence: ClusterEvidenceRow[] } => ({
+const cluster = (id: string, count: number, comments = ['Learner comment'], clusteringVersion = 'v3'): ClusterRow & { evidence: ClusterEvidenceRow[] } => ({
   cluster_id: id, video_id: 'video', cluster_label: `Question ${id}`, primary_concept: 'concept', question_count: count,
-  average_confusion_strength: 0.7, average_confidence: 0.9, representative_comment_ids: [], created_at: '2026-01-01', clustering_version: 'v1',
+  average_confusion_strength: 0.7, average_confidence: 0.9, representative_comment_ids: [], created_at: '2026-01-01', clustering_version: clusteringVersion,
   evidence: comments.map((comment, index) => ({ cluster_id: id, comment_id: `${id}-${index}`, video_id: 'video', similarity_score: 1, created_at: '2026-01-01', comment_text: comment, is_reply: false, published_at: '2026-01-01' })),
 });
 
@@ -32,6 +32,17 @@ describe('Phase 6 interpretation evidence', () => {
     const changed = buildEvidencePacket('video', 'concept', score(), [cluster('a', 3)]);
     expect(fingerprintEvidence(first)).toBe(fingerprintEvidence(same));
     expect(fingerprintEvidence(first)).not.toBe(fingerprintEvidence(changed));
+  });
+
+  it('invalidates an old Phase 6 fingerprint when the question-clustering version changes', () => {
+    const oldClusters = [cluster('a', 2, ['one', 'two'], 'v2')];
+    const newClusters = [cluster('a', 2, ['one', 'two'], 'v3')];
+    const oldPacket = buildEvidencePacket('video', 'concept', score(), oldClusters);
+    const newPacket = buildEvidencePacket('video', 'concept', score(), newClusters);
+
+    expect(oldPacket.questionClusteringVersion).toBe('v2');
+    expect(newPacket.questionClusteringVersion).toBe('v3');
+    expect(fingerprintEvidence(oldPacket)).not.toBe(fingerprintEvidence(newPacket));
   });
 
   it('validates structured responses against supplied cluster ids', () => {

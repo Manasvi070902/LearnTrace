@@ -20,6 +20,7 @@ export interface InterpretationPacket {
   videoId: string;
   videoTitle?: string;
   concept: string;
+  questionClusteringVersion: string;
   learningFrictionScore: number;
   frictionLevel: string;
   learningSignalCount: number;
@@ -62,8 +63,12 @@ export function buildEvidencePacket(
       memberCount: cluster.question_count,
       comments: cluster.evidence.slice(0, MAX_EVIDENCE_PER_CLUSTER).map((item) => item.comment_text),
     }));
+  const questionClusteringVersion = [...new Set(clusters.map((cluster) => cluster.clustering_version))]
+    .sort()
+    .join(',');
   return {
     videoId, videoTitle, concept,
+    questionClusteringVersion,
     learningFrictionScore: score.learning_friction_score!, frictionLevel: score.friction_level,
     learningSignalCount: score.question_count, recurringQuestionCount: evidenceClusters.length,
     averageConfusionStrength: score.average_confusion_strength,
@@ -74,7 +79,9 @@ export function buildEvidencePacket(
 
 export function fingerprintEvidence(packet: InterpretationPacket): string {
   return createHash('sha256').update(JSON.stringify({
-    version: PHASE6_DIAGNOSIS_VERSION, concept: packet.concept,
+    version: PHASE6_DIAGNOSIS_VERSION,
+    questionClusteringVersion: packet.questionClusteringVersion,
+    concept: packet.concept,
     score: packet.learningFrictionScore, clusters: packet.evidenceClusters.map((cluster) => ({
       question: cluster.canonicalQuestion, count: cluster.memberCount, commentIds: cluster.commentIds,
     })),
