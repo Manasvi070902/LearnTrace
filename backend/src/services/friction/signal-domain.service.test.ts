@@ -39,6 +39,36 @@ describe('signal domain classification', () => {
     expect(deriveSignalDomain({ intent: 'technical_error', canonical_question: 'My Python environment cannot find this package.', concept: 'Python environment' })).toBe('technical_barrier');
   });
 
+  it.each([
+    'Should I watch the foundations lesson first?',
+    'Should I study algebra before calculus?',
+    'Should I complete the introduction before starting this?',
+    'Is the foundations course required before this course?',
+    'Can I start this topic directly?',
+    'Is this course enough?',
+    'Is this series sufficient for interviews?',
+    'Is this playlist enough to learn the topic?',
+    'Does this series cover everything I need?',
+    'Is this enough preparation?',
+    'What should I learn before this?',
+    'What are the prerequisites?',
+    'Do I need to know algebra before this?',
+    'Which topics should I know first?',
+    'What should I complete before starting this?',
+    'What should I study next?',
+    'Which topic comes next?',
+    'What order should I learn these topics in?',
+    'Which lesson should I watch first?',
+    'Where should I start?',
+  ])('classifies generic curriculum planning as curriculum_navigation: %s', (question) => {
+    expect(deriveSignalDomain({ intent: 'learning_question', canonical_question: question, concept: 'General subject' })).toBe('curriculum_navigation');
+  });
+
+  it('preserves conceptual questions that merely contain curriculum-like words', () => {
+    expect(deriveSignalDomain({ intent: 'learning_question', canonical_question: 'Why do we use this optimization first before the DP transition?', concept: 'Optimization' })).toBe('learning_conceptual');
+    expect(deriveSignalDomain({ intent: 'learning_question', canonical_question: 'Why is this topic required before learning DP?', concept: 'Dynamic Programming' })).toBe('learning_conceptual');
+  });
+
   it('treats praise and noise as other', () => {
     expect(deriveSignalDomain({ intent: 'praise', canonical_question: null, concept: null })).toBe('other');
     expect(deriveSignalDomain({ intent: 'noise', canonical_question: null, concept: null })).toBe('other');

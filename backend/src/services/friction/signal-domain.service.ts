@@ -21,6 +21,18 @@ const CURRICULUM_NAVIGATION_PATTERNS = [
   /\b(is|are)\b.*\b(required|enough)\b.*\b(for )?(interviews?|placements?)\b/i,
   /\b(what|which)\b.*\b(should|do)\b.*\b(i )?(learn|study|watch)\b.*\b(after|next)\b/i,
   /\b(roadmap|learning path)\b.*\b(order|sequence|next|follow)\b/i,
+  /\bshould\s+(i|we)\s+(watch|study|learn|complete|finish)\b.*\b(first|before|prior to)\b/i,
+  /\b(can|should)\s+(i|we)\s+(start|begin)\b.*\b(directly|without)\b/i,
+  /\b(is|are)\b.*\b(required|necessary)\b.*\b(before|prior to)\b.*\b(course|series|topic|lesson|this)\b/i,
+  /\b(is|are|does|do)\b.*\b(course|series|playlist|lesson|material|content)\b.*\b(enough|sufficient|cover|covers|covered|complete)\b/i,
+  /\bis this enough preparation\b/i,
+  /\bwhat\s+(should|do)\s+(i|we)\s+(learn|study|know|complete)\b.*\b(before|first|prior to)\b/i,
+  /\bwhat\s+(are|do)\b.*\bprerequisites?\b/i,
+  /\bdo\s+(i|we)\s+(need|have)\s+(to )?know\b.*\bbefore\b/i,
+  /\bwhich topics?\b.*\b(know|learn|study)\b.*\b(first|before)\b/i,
+  /\bwhat order should (i|we)\s+(learn|study|watch)\b/i,
+  /\b(which|what)\s+(topic|lesson)\b.*\b(next|first)\b/i,
+  /\bwhere\s+(should|do)\s+(i|we)\s+start\b/i,
 ];
 
 function isCurriculumNavigationQuestion(input: SignalDomainInput): boolean {
