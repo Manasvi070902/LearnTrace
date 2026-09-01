@@ -42,7 +42,10 @@ function repeatedThemeSummary(actions: CreatorAction[]): string | null {
 }
 
 function specificThemeSummary(actions: CreatorAction[]): string | null {
-  return actions.length ? `${actions.length} specific theme${actions.length === 1 ? '' : 's'}` : null;
+  const strengths = actions.filter((action) => !action.isGeneralPositive);
+  if (!strengths.length) return null;
+  const specificComments = strengths.reduce((sum, action) => sum + action.supportingSignalCount, 0);
+  return `${specificComments} specific comment${specificComments === 1 ? '' : 's'} · ${strengths.length} strength${strengths.length === 1 ? '' : 's'}`;
 }
 
 const TECHNICAL_ACRONYMS = new Set(['ai', 'api', 'css', 'dsa', 'dp', 'html', 'json', 'sql', 'ui', 'ux']);
@@ -114,9 +117,10 @@ export function CreatorActionsView({ videoId }: CreatorActionsViewProps) {
 
   return <section className="creator-actions-section">
     {priorities.length > 0 && <section className="priority-section">
-      <div className="priority-heading-row"><h3 className="priority-heading">{priorities.length} thing{priorities.length === 1 ? '' : 's'} worth your attention <LearnTraceIcon name="flame" size={20} /></h3><button type="button" className="priority-link" onClick={() => chooseCategory('learning')}>View all learning questions →</button></div>
+      <div className="priority-heading-row"><h3 className="priority-heading"><LearnTraceIcon name="flame" size={20} /> Worth your attention</h3></div>
+      <p className="priority-supporting-copy">Repeated or actionable patterns from the conversations analyzed.</p>
       <div className="priority-list">{priorities.map((action, index) => <PriorityItem key={action.id} action={action} index={index} onReview={() => {
-        setSelectedCategory(null); setOpenInsight(action.id);
+        setSelectedCategory(action.category as CategoryKey); setOpenInsight(action.id);
       }} />)}</div>
     </section>}
 
@@ -142,9 +146,38 @@ export function CreatorActionsView({ videoId }: CreatorActionsViewProps) {
   </section>;
 }
 
+const GENERIC_PRIORITY_TITLES = new Set([
+  'improvement opportunity', 'content opportunity', 'creator feedback', 'curriculum navigation signal',
+  'curriculum navigation', 'course learning path', 'technical barrier', 'learning opportunity',
+  'learning friction opportunity', 'learning friction', 'recurring learning question', 'what worked',
+  'presentation feedback', 'other feedback', 'positive feedback',
+]);
+
+function priorityDisplayTitle(action: CreatorAction): string {
+  const semanticTitle = [action.concept, action.canonicalQuestion]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .map((value) => formatDisplayLabel(value.trim()))
+    .find((value) => !GENERIC_PRIORITY_TITLES.has(value.toLowerCase()));
+  return semanticTitle || formatDisplayLabel(action.title);
+}
+
+function priorityCategory(action: CreatorAction): { label: string; icon: LearnTraceIconName; count: string } {
+  const count = action.supportingSignalCount;
+  const learners = `${count} learner${count === 1 ? '' : 's'}`;
+  switch (action.category) {
+    case 'learning': return { label: 'Learning', icon: 'learning', count: action.learningFrictionScore !== null ? `${learners} are struggling with this` : `${learners} asked something similar` };
+    case 'actionable_feedback': return { label: 'Video feedback', icon: 'feedback', count: `${learners} mentioned this` };
+    case 'content_opportunity': return { label: 'Content request', icon: 'content', count: `${learners} requested this` };
+    case 'technical': return { label: 'Code & setup', icon: 'technical', count: `${learners} reported this` };
+    case 'curriculum_navigation': return { label: 'Course & learning path', icon: 'path', count: `${learners} asked about this` };
+    default: return { label: action.title, icon: 'comment', count: `${learners} mentioned this` };
+  }
+}
+
 function PriorityItem({ action, index, onReview }: { action: CreatorAction; index: number; onReview: () => void }) {
-  const tone = action.learningFrictionScore !== null ? 'high' : action.evidenceStrength === 'strong' ? 'attention' : 'repeated';
-  return <button type="button" className={`priority-item priority-${tone} priority-rank-${index + 1}`} onClick={onReview}><span className="priority-number">{String(index + 1).padStart(2, '0')}</span><span className="priority-copy"><strong>{actionLabel(action)}</strong><small>{action.supportingSignalCount} learner{action.supportingSignalCount === 1 ? '' : 's'} {action.category === 'learning' ? 'asked something similar' : 'raised this pattern'}</small></span><span className="priority-chevron">›</span></button>;
+  const category = priorityCategory(action);
+  const severeLearning = action.category === 'learning' && ['High', 'Critical'].includes(action.learningFrictionStatus || '');
+  return <button type="button" className={`priority-item priority-category-${action.category} ${severeLearning ? 'priority-high' : ''}`} onClick={onReview}><span className="priority-number">{String(index + 1).padStart(2, '0')}</span><span className="priority-copy"><span className="priority-category"><LearnTraceIcon name={category.icon} size={14} /> {category.label}</span><strong>{priorityDisplayTitle(action)}</strong><small>{category.count}</small></span><span className="priority-chevron">›</span></button>;
 }
 
 
@@ -240,59 +273,61 @@ function displayActionTitle(action: CreatorAction): string {
   if (action.category === 'curriculum_navigation') return courseActionTitle(action);
   const title = actionLabel(action);
   if (action.category === 'content_opportunity' && ['content opportunity', 'content request'].includes(title.toLowerCase())) return 'Learner request';
-  if (action.category === 'actionable_feedback' && ['feedback', 'improvement opportunity', 'presentation feedback'].includes(title.toLowerCase())) return 'Other Feedback';
+  if (action.category === 'actionable_feedback' && ['feedback', 'improvement opportunity', 'presentation feedback'].includes(title.toLowerCase())) return 'Individual feedback';
   if (action.category === 'positive_signal' && ['what worked', 'positive response', 'positive signal'].includes(title.toLowerCase())) return 'Positive Feedback';
   return title;
 }
 
+function isGenericFeedback(action: CreatorAction): boolean {
+  return action.category === 'actionable_feedback' && displayActionTitle(action) === 'Individual feedback';
+}
+
 function ThemeRows({ actions, category, onOpen }: { actions: CreatorAction[]; category: 'actionable_feedback' | 'positive_signal'; onOpen: (id: string) => void }) {
   const [page, setPage] = useState(0);
-  const pageSize = 4;
+  const positive = category === 'positive_signal';
+  const pageSize = positive ? 5 : 4;
   const pageCount = Math.max(1, Math.ceil(actions.length / pageSize));
   const currentPage = Math.min(page, pageCount - 1);
   const visibleActions = actions.slice(currentPage * pageSize, (currentPage + 1) * pageSize);
   useEffect(() => { setPage(0); }, [actions]);
-  const positive = category === 'positive_signal';
   if (!actions.length) return <p className="learning-empty-state">{positive ? "Learners responded positively, but there isn't enough specific feedback yet to identify a clear teaching strength." : 'No specific themes are available yet.'}</p>;
   return <section className={`theme-row-list ${positive ? 'theme-row-positive' : 'theme-row-feedback'}`} aria-label={positive ? 'What worked themes' : 'Video feedback themes'}>
-    {visibleActions.map((action) => <button type="button" key={action.id} className="theme-row" onClick={() => onOpen(action.id)} aria-label={`View ${displayActionTitle(action)}`}>
+    {visibleActions.map((action) => {
+      const genericFeedback = isGenericFeedback(action);
+      const rowTitle = genericFeedback ? 'Individual feedback' : displayActionTitle(action);
+      const rowSummary = genericFeedback ? action.evidence[0]?.commentText || action.summary : action.summary;
+      return <button type="button" key={action.id} className={`theme-row ${action.isGeneralPositive ? 'theme-row-general-positive' : ''}`} onClick={() => onOpen(action.id)} aria-label={`View ${rowTitle}`}>
       <span className="theme-row-icon"><LearnTraceIcon name={positive ? 'positive' : 'feedback'} size={21} /></span>
-      <span className="theme-row-copy"><strong>{displayActionTitle(action)}</strong><small>{action.summary}</small></span>
-      <span className="theme-row-meta"><em>{positive ? (action.supportingSignalCount >= 2 ? 'Positive pattern' : 'One positive comment') : (action.supportingSignalCount >= 2 ? 'Repeated' : 'One suggestion')}</em><small>{action.supportingSignalCount} comment{action.supportingSignalCount === 1 ? '' : 's'} mentioned this</small></span>
+      <span className="theme-row-copy"><strong>{rowTitle}</strong><small>{rowSummary}</small></span>
+      <span className="theme-row-meta"><em>{positive ? (action.isGeneralPositive ? 'General appreciation' : action.supportingSignalCount >= 2 ? 'Positive pattern' : 'One positive comment') : (genericFeedback ? 'Individual comment' : action.supportingSignalCount >= 2 ? 'Repeated' : 'One suggestion')}</em><small>{action.supportingSignalCount} comment{action.supportingSignalCount === 1 ? '' : 's'} mentioned this</small></span>
       <span className="theme-row-chevron">›</span>
-    </button>)}
+    </button>;
+    })}
     {actions.length > pageSize && <nav className="theme-row-pagination" aria-label="Theme pages"><button type="button" onClick={() => setPage((value) => Math.max(0, value - 1))} disabled={currentPage === 0}>←</button><span className="pagination-dots" aria-hidden="true">{Array.from({ length: pageCount }, (_, item) => <i key={item} className={item === currentPage ? 'active' : ''} />)}</span><span>{currentPage + 1} of {pageCount}</span><button type="button" onClick={() => setPage((value) => Math.min(pageCount - 1, value + 1))} disabled={currentPage === pageCount - 1}>→</button></nav>}
   </section>;
 }
 
 function CategoryActionCarousel({ actions, onOpen }: { actions: CreatorAction[]; onOpen: (id: string) => void }) {
   const [index, setIndex] = useState(0);
-  const [showFullRequest, setShowFullRequest] = useState(false);
   const activeIndex = Math.min(index, Math.max(0, actions.length - 1));
   const action = actions[activeIndex];
-  useEffect(() => { setIndex(0); setShowFullRequest(false); }, [actions]);
-  useEffect(() => { setShowFullRequest(false); }, [action?.id]);
+  useEffect(() => { setIndex(0); }, [actions]);
   if (!action) return <p className="learning-empty-state">No audience signals in this category yet.</p>;
   const icon = CATEGORY_ICONS[action.category as Exclude<CategoryKey, 'learning'>] || 'content';
   const normalizedCourseQuestion = courseQuestion(action);
   const quote = normalizedCourseQuestion || action.evidence[0]?.commentText;
   const isSingleContentRequest = action.category === 'content_opportunity' && action.supportingSignalCount === 1;
+  const cardContent = <>
+    <span className="category-feature-icon"><LearnTraceIcon name={icon} size={31} /></span>
+    <span className="category-feature-copy">
+      <span className="category-feature-kind">{actionKind(action)}</span>
+      <strong>{displayActionTitle(action)}</strong>
+      <span className={`category-feature-evidence ${normalizedCourseQuestion ? 'normalized-course-question' : ''} ${isSingleContentRequest ? 'full-request-visible' : ''}`}>{quote ? normalizedCourseQuestion || `“${quote}”` : action.summary}</span>
+      <span className="category-feature-footer"><span><LearnTraceIcon name="users" size={16} /> {action.supportingSignalCount} learner{action.category === 'curriculum_navigation' ? (action.supportingSignalCount === 1 ? ' asked this' : 's asked something similar') : (action.supportingSignalCount === 1 ? '' : 's')} {action.category === 'content_opportunity' ? 'requested this' : action.category === 'curriculum_navigation' ? '' : 'raised this'}</span><em>{action.category === 'curriculum_navigation' ? 'See original comment →' : 'View evidence →'}</em></span>
+    </span>
+  </>;
   return <section className={`category-action-carousel carousel-${action.category}`} aria-label={`${actionKind(action)} carousel`}>
-    <button type="button" className="category-feature-card" onClick={() => isSingleContentRequest ? setShowFullRequest((visible) => !visible) : onOpen(action.id)} aria-label={isSingleContentRequest ? `${showFullRequest ? 'Hide' : 'Read'} full request for ${actionLabel(action)}` : `View details for ${actionLabel(action)}`} aria-expanded={isSingleContentRequest ? showFullRequest : undefined}>
-      <span className="category-feature-icon"><LearnTraceIcon name={icon} size={31} /></span>
-      <span className="category-feature-copy">
-        <span className="category-feature-kind">{actionKind(action)}</span>
-        <strong>{displayActionTitle(action)}</strong>
-        <span className={`category-feature-evidence ${normalizedCourseQuestion ? 'normalized-course-question' : ''}`}>{quote ? normalizedCourseQuestion || `“${quote}”` : action.summary}</span>
-        {quote && action.category === 'content_opportunity' && <span className="category-feature-read-more">{isSingleContentRequest && showFullRequest ? 'Hide full request ↑' : 'Read full request →'}</span>}
-        <span className="category-feature-footer"><span><LearnTraceIcon name="users" size={16} /> {action.supportingSignalCount} learner{action.category === 'curriculum_navigation' ? (action.supportingSignalCount === 1 ? ' asked this' : 's asked something similar') : (action.supportingSignalCount === 1 ? '' : 's')} {action.category === 'content_opportunity' ? 'requested this' : action.category === 'curriculum_navigation' ? '' : 'raised this'}</span><em>{isSingleContentRequest ? (showFullRequest ? 'Shown inline' : 'Read inline') : action.category === 'curriculum_navigation' ? 'See original comment →' : 'View evidence →'}</em></span>
-      </span>
-    </button>
-    {isSingleContentRequest && showFullRequest && quote && <article className="inline-request-evidence" aria-label="Full learner request">
-      <span><LearnTraceIcon name="comment" size={17} /> Full learner request</span>
-      {action.evidence[0].isReply && action.evidence[0].parentCommentText && <p className="reply-context"><LearnTraceIcon name="reply" size={14} /> Reply to: {action.evidence[0].parentCommentText}</p>}
-      <p>{quote}</p>
-    </article>}
+    {isSingleContentRequest ? <article className="category-feature-card category-feature-static">{cardContent}</article> : <button type="button" className="category-feature-card" onClick={() => onOpen(action.id)} aria-label={`View details for ${actionLabel(action)}`}>{cardContent}</button>}
     {actions.length > 1 && <nav className="category-carousel-controls" aria-label="Category signals">
       <button type="button" aria-label="Previous signal" disabled={activeIndex === 0} onClick={() => setIndex((value) => Math.max(0, value - 1))}>←</button>
       <span className="pagination-dots" aria-hidden="true">{actions.map((item, itemIndex) => <i key={item.id} className={itemIndex === activeIndex ? 'active' : ''} />)}</span>
@@ -355,8 +390,8 @@ function InsightDrawer({ action, onClose }: { action: CreatorAction; onClose: ()
     {hasInterpretation && <section className="drawer-section"><DrawerHeading icon="sparkles">What LearnTrace noticed</DrawerHeading><p>{action.summary}</p></section>}
     {hasInterpretation && <section className="drawer-section drawer-action"><DrawerHeading icon="content">What you could try</DrawerHeading><p>{action.suggestedAction}</p></section>}
     {learning && repeated && !hasInterpretation && <section className="drawer-section drawer-watch"><DrawerHeading icon="eye">Worth watching</DrawerHeading><p>{recommendation}</p></section>}
-    {positive && <section className="drawer-section drawer-positive-meaning"><DrawerHeading icon="positive">Why this matters</DrawerHeading><p>Learners specifically responded positively to {displayActionTitle(action).toLocaleLowerCase()}.</p></section>}
-    {!learning && <section className="drawer-section drawer-action"><DrawerHeading icon={positive ? 'positive' : feedback ? 'content' : course ? 'path' : 'content'}>{positive ? 'Keep doing this' : course ? 'What you could clarify' : 'What you could try'}</DrawerHeading><p>{action.suggestedAction}</p></section>}
+    {positive && <section className="drawer-section drawer-positive-meaning"><DrawerHeading icon="positive">Why this matters</DrawerHeading><p>{action.isGeneralPositive ? 'Learners praised the teaching overall but did not name a particular teaching approach.' : `Learners specifically responded positively to ${displayActionTitle(action).toLocaleLowerCase()}.`}</p></section>}
+    {!learning && <section className="drawer-section drawer-action"><DrawerHeading icon={positive ? 'positive' : feedback ? 'content' : course ? 'path' : 'content'}>{positive ? action.isGeneralPositive ? 'What this means' : 'Keep doing this' : course ? 'What you could clarify' : 'What you could try'}</DrawerHeading><p>{action.suggestedAction}</p></section>}
     <details className="drawer-trust"><summary><LearnTraceIcon name="info" size={16} /> Why this is showing</summary><p>{course ? courseTrustText : trustText}</p></details>
   </aside></>;
 }

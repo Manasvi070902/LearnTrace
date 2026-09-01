@@ -106,6 +106,16 @@ describe('Creator Actions', () => {
     expect(result.improvementOpportunities.every((action) => action.supportingSignalCount === 1)).toBe(true);
   });
 
+  it('groups identical generic feedback comments as repeated evidence', () => {
+    const result = buildCreatorActions([
+      signal({ comment_id: 'same-feedback-1', intent: 'feedback', comment_text: 'Please explain this part again.' }),
+      signal({ comment_id: 'same-feedback-2', intent: 'feedback', comment_text: 'Please explain this part again.' }),
+    ], [], []);
+
+    expect(result.improvementOpportunities).toHaveLength(1);
+    expect(result.improvementOpportunities[0]).toMatchObject({ supportingSignalCount: 2 });
+  });
+
   it('returns every supporting comment for a genuinely repeated action', () => {
     const result = buildCreatorActions([
       signal({ comment_id: 'audio-1', intent: 'feedback', comment_text: 'The audio is too quiet.' }),
@@ -159,7 +169,11 @@ describe('Creator Actions', () => {
       signal({ comment_id: 'generic', intent: 'praise', comment_text: 'Awesome!' }),
     ], [], []);
     expect(result.audienceOverview.positive_signal).toBe(2);
-    expect(result.positiveSignals).toHaveLength(1);
+    expect(result.positiveSignals).toHaveLength(2);
+    expect(result.positiveSignals.find((action) => action.isGeneralPositive)).toMatchObject({
+      concept: 'general teaching appreciation',
+      supportingSignalCount: 1,
+    });
   });
 
   it('groups positive signals by teaching strength rather than the lesson topic', () => {
@@ -170,12 +184,12 @@ describe('Creator Actions', () => {
     ], [], []);
 
     expect(result.audienceOverview.positive_signal).toBe(3);
-    expect(result.positiveSignals).toHaveLength(1);
-    expect(result.positiveSignals[0]).toMatchObject({
+    expect(result.positiveSignals).toHaveLength(2);
+    expect(result.positiveSignals.find((action) => !action.isGeneralPositive)).toMatchObject({
       concept: 'step-by-step approach',
       supportingSignalCount: 2,
     });
-    expect(result.positiveSignals[0].summary).toContain('step-by-step approach');
+    expect(result.positiveSignals.find((action) => !action.isGeneralPositive)?.summary).toContain('step-by-step approach');
   });
 
   it('treats a peer explanation as discussion rather than learner confusion', () => {

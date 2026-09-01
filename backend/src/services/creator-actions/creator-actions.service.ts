@@ -46,6 +46,8 @@ export interface CreatorAction {
   recurringQuestionCount: number;
   evidenceIds: string[];
   evidence: ActionEvidence[];
+  /** Overall praise retained separately from named teaching strengths. */
+  isGeneralPositive?: boolean;
   source: 'deterministic' | 'phase6_ai';
   priority: number;
 }
@@ -225,20 +227,35 @@ function makeAction(
 
 function groupSignals(signals: AudienceSignal[], disposition: CreatorAction['category']): CreatorAction[] {
   const groups = new Map<string, AudienceSignal[]>();
+  const generalPositiveSignals: AudienceSignal[] = [];
   for (const signal of signals) {
-    if (disposition === 'positive_signal' && !isSpecificPraise(signal)) continue;
+    if (disposition === 'positive_signal' && !isSpecificPraise(signal)) {
+      generalPositiveSignals.push(signal);
+      continue;
+    }
     const theme = signalTheme(signal, disposition);
     const normalizedTheme = normalizedText(theme) || 'general';
     // A neutral display fallback is not evidence that unrelated feedback
     // comments form a repeated theme.
     const key = disposition === 'actionable_feedback' && normalizedTheme === 'presentation feedback'
-      ? `${normalizedTheme}:${signal.comment_id}`
+      ? `${normalizedTheme}:${normalizedText(signal.comment_text) || signal.comment_id}`
       : normalizedTheme;
     groups.set(key, [...(groups.get(key) || []), signal]);
   }
-  return [...groups.entries()]
+  const actions = [...groups.entries()]
     .map(([, members]) => makeAction(disposition, signalTheme(members[0], disposition), members))
     .filter((action) => action.evidenceIds.length > 0);
+  if (disposition === 'positive_signal' && generalPositiveSignals.length > 0) {
+    const action = makeAction(disposition, 'general teaching appreciation', generalPositiveSignals);
+    actions.push({
+      ...action,
+      title: 'General teaching appreciation',
+      summary: `${generalPositiveSignals.length} positive comment${generalPositiveSignals.length === 1 ? '' : 's'} appreciated the teaching overall without naming a specific approach.`,
+      suggestedAction: 'Treat this as overall positive audience feedback while keeping named teaching strengths separate.',
+      isGeneralPositive: true,
+    });
+  }
+  return actions;
 }
 
 function buildLearningInsights(

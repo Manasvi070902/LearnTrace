@@ -216,6 +216,7 @@ export interface CreatorAction {
   recurringQuestionCount: number;
   evidenceIds: string[];
   evidence: CreatorActionEvidence[];
+  isGeneralPositive?: boolean;
   source: 'deterministic' | 'phase6_ai';
 }
 
