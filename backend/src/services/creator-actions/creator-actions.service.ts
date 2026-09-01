@@ -39,6 +39,8 @@ export interface CreatorAction {
   evidenceStrength: EvidenceStrength;
   supportingSignalCount: number;
   concept: string | null;
+  /** The representative canonical question, when the action has one. */
+  canonicalQuestion: string | null;
   learningFrictionScore: number | null;
   learningFrictionStatus: string | null;
   recurringQuestionCount: number;
@@ -121,6 +123,12 @@ function feedbackTheme(signal: AudienceSignal): string {
 
 function signalTheme(signal: AudienceSignal, disposition: ProductDisposition): string {
   if (disposition === 'actionable_feedback') return feedbackTheme(signal);
+  // A broad Phase 4 concept such as "Content Opportunity" is useful for
+  // categorisation but must not merge different requests into one action.
+  // The canonical request preserves the actual thing the learner asked for.
+  if (disposition === 'content_opportunity' && signal.canonical_question?.trim()) {
+    return signal.canonical_question.trim();
+  }
   if (signal.concept?.trim()) return signal.concept.trim();
   if (signal.canonical_question?.trim()) return signal.canonical_question.trim();
   if (disposition === 'technical') return 'technical issue';
@@ -177,6 +185,7 @@ function makeAction(
     evidenceStrength: strength,
     supportingSignalCount: signals.length,
     concept: signals[0]?.concept || null,
+    canonicalQuestion: signals[0]?.canonical_question || null,
     learningFrictionScore: null,
     learningFrictionStatus: null,
     recurringQuestionCount: 0,
@@ -240,6 +249,7 @@ function buildLearningInsights(
       evidenceStrength: strength,
       supportingSignalCount: cluster.question_count,
       concept,
+      canonicalQuestion: cluster.cluster_label,
       learningFrictionScore: friction?.learning_friction_score ?? null,
       learningFrictionStatus: hasFrictionScore ? friction?.friction_level ?? null : null,
       recurringQuestionCount: recurring ? 1 : 0,
@@ -284,6 +294,7 @@ function buildUnclusteredLearningInsights(signals: AudienceSignal[], clusters: L
       evidenceStrength: 'emerging' as const,
       supportingSignalCount: members.length,
       concept,
+      canonicalQuestion: members[0].canonical_question || null,
       learningFrictionScore: null,
       learningFrictionStatus: null,
       recurringQuestionCount: 0,

@@ -5,7 +5,7 @@
  * Friction is NOT assigned by Gemini; it is calculated from stored evidence.
  */
 
-export const SCORING_VERSION = 'v1';
+export const SCORING_VERSION = 'v2';
 
 function getFrictionWeights(): { volume: number; confusion: number; recurrence: number } {
   return {

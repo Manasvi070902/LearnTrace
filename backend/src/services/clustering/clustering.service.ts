@@ -13,7 +13,7 @@ import { areQuestionSignaturesCompatible, deriveQuestionSignature, QuestionSigna
  * v3 adds question-task compatibility to v2 complete-link cohesion. Derived
  * Phase 5/6 results from earlier versions must be recomputed.
  */
-export const CLUSTERING_VERSION = 'v3';
+export const CLUSTERING_VERSION = 'v4';
 
 export function getClusterSimilarityThreshold(): number {
   return Number(process.env.QUESTION_CLUSTER_SIMILARITY_THRESHOLD || 0.75);

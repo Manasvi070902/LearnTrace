@@ -15,6 +15,10 @@ export interface CommentAnalysisRow {
   model_name: string;
   prompt_version: string;
   analyzed_at: string;
+  /** Joined from the stored source comment when analysis is read for Phase 5. */
+  comment_text?: string | null;
+  is_reply?: boolean;
+  parent_comment_id?: string | null;
 }
 
 export interface AnalysisRun {
@@ -89,6 +93,9 @@ export async function insertAnalysisRun(run: AnalysisRun): Promise<void> {
       started_at: run.started_at,
       status: run.status,
     },
+    // BigQuery cannot infer an array element type from [] when the target has
+    // already reached its analysis coverage. Keep the no-new-work run valid.
+    types: { selected_comment_ids: ['STRING'] },
     location: process.env.BIGQUERY_LOCATION,
   });
 }
@@ -96,16 +103,44 @@ export async function insertAnalysisRun(run: AnalysisRun): Promise<void> {
 export async function completeAnalysisRun(run: AnalysisRun): Promise<void> {
   await getBigQueryClient().query({
     query: `UPDATE \`${process.env.GOOGLE_CLOUD_PROJECT_ID}.${process.env.BIGQUERY_DATASET}.${TABLE_NAMES.ANALYSIS_RUNS}\` SET comments_cached = @comments_cached, comments_submitted = @comments_submitted, gemini_requests = @gemini_requests, results_stored = @results_stored, completed_at = TIMESTAMP(@completed_at), status = @status WHERE run_id = @run_id`,
-    params: run, location: process.env.BIGQUERY_LOCATION,
+    // Do not pass selected_comment_ids here: an empty array is not referenced
+    // by this query and BigQuery cannot infer its element type.
+    params: {
+      run_id: run.run_id,
+      comments_cached: run.comments_cached,
+      comments_submitted: run.comments_submitted,
+      gemini_requests: run.gemini_requests,
+      results_stored: run.results_stored,
+      completed_at: run.completed_at,
+      status: run.status,
+    },
+    location: process.env.BIGQUERY_LOCATION,
   });
 }
 
 export async function getAnalysisForVideo(videoId: string, promptVersion: string, modelName: string): Promise<CommentAnalysisRow[]> {
   const [rows] = await getBigQueryClient().query({
-    query: `SELECT comment_id, video_id, intent, is_learning_signal, canonical_question, concept, confusion_strength, confidence, reason, model_name, prompt_version, CAST(analyzed_at AS STRING) AS analyzed_at FROM \`${process.env.GOOGLE_CLOUD_PROJECT_ID}.${process.env.BIGQUERY_DATASET}.${TABLE_NAMES.COMMENT_ANALYSIS}\` WHERE video_id = @video_id AND prompt_version = @prompt_version AND model_name = @model_name ORDER BY analyzed_at, comment_id`,
+    query: `
+      SELECT
+        a.comment_id, a.video_id, a.intent, a.is_learning_signal,
+        a.canonical_question, a.concept, a.confusion_strength, a.confidence,
+        a.reason, a.model_name, a.prompt_version,
+        CAST(a.analyzed_at AS STRING) AS analyzed_at,
+        c.comment_text, c.is_reply, c.parent_comment_id
+      FROM \`${process.env.GOOGLE_CLOUD_PROJECT_ID}.${process.env.BIGQUERY_DATASET}.${TABLE_NAMES.COMMENT_ANALYSIS}\` a
+      LEFT JOIN \`${process.env.GOOGLE_CLOUD_PROJECT_ID}.${process.env.BIGQUERY_DATASET}.${TABLE_NAMES.COMMENTS}\` c
+        ON c.comment_id = a.comment_id AND c.video_id = a.video_id
+      WHERE a.video_id = @video_id
+        AND a.prompt_version = @prompt_version
+        AND a.model_name = @model_name
+      ORDER BY a.analyzed_at, a.comment_id
+    `,
     params: { video_id: videoId, prompt_version: promptVersion, model_name: modelName }, location: process.env.BIGQUERY_LOCATION,
   });
-  return rows as CommentAnalysisRow[];
+  return (rows || []).map((row: CommentAnalysisRow) => ({
+    ...row,
+    is_reply: Boolean(row.is_reply),
+  }));
 }
 
 export async function upsertCommentAnalysis(rows: CommentAnalysisRow[]): Promise<void> {

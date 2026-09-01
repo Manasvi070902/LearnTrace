@@ -1,5 +1,5 @@
 import { CommentAnalysisRow } from './bigquery.analysis';
-import { isEligibleLearningSignal } from './bigquery.friction.orchestration';
+import { isEligibleLearningSignal, isIndependentLearningQuestion } from './bigquery.friction.orchestration';
 
 const signal = (overrides: Partial<CommentAnalysisRow> = {}): CommentAnalysisRow => ({
   comment_id: 'comment-1', video_id: 'video-1', intent: 'learning_question',
@@ -28,5 +28,25 @@ describe('Phase 5 source selection', () => {
     expect(isEligibleLearningSignal(signal({ canonical_question: null }))).toBe(false);
     expect(isEligibleLearningSignal(signal({ confidence: 0.64 }))).toBe(false);
     expect(isEligibleLearningSignal(signal())).toBe(true);
+  });
+
+  it('does not count terse reply-only agreement as an independent learner question', () => {
+    const reply = signal({
+      is_reply: true,
+      comment_text: "That's the same thing I'm trying to figure out.",
+    });
+
+    expect(isIndependentLearningQuestion(reply)).toBe(false);
+    expect(isEligibleLearningSignal(reply)).toBe(false);
+  });
+
+  it('keeps a substantive reply question as independent learning evidence', () => {
+    const reply = signal({
+      is_reply: true,
+      comment_text: 'Why does this reaction release energy when the bonds are rearranged?',
+    });
+
+    expect(isIndependentLearningQuestion(reply)).toBe(true);
+    expect(isEligibleLearningSignal(reply)).toBe(true);
   });
 });

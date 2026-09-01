@@ -210,6 +210,7 @@ export interface CreatorAction {
   evidenceStrength: EvidenceStrength;
   supportingSignalCount: number;
   concept: string | null;
+  canonicalQuestion: string | null;
   learningFrictionScore: number | null;
   learningFrictionStatus: string | null;
   recurringQuestionCount: number;

@@ -60,6 +60,7 @@ describe('Creator Actions', () => {
     const action = buildCreatorActions([], [cluster('two', 2)], []).learningInsights[0];
     expect(action.title).toBe('Recurring Learning Question');
     expect(action.evidenceStrength).toBe('recurring');
+    expect(action.canonicalQuestion).toBe('Question two');
   });
 
   it('reuses a cached Phase 6A interpretation for strong learning friction', () => {
@@ -93,6 +94,22 @@ describe('Creator Actions', () => {
     expect(result.contentOpportunities).toHaveLength(1);
     expect(result.improvementOpportunities).toHaveLength(1);
     expect(result.creatorActions.every((action) => action.learningFrictionScore === null)).toBe(true);
+  });
+
+  it('does not merge different content requests just because their broad concept matches', () => {
+    const result = buildCreatorActions([
+      signal({
+        comment_id: 'request-1', intent: 'content_request', concept: 'Content Opportunity',
+        canonical_question: 'Could you cover weekly contest solutions?',
+      }),
+      signal({
+        comment_id: 'request-2', intent: 'content_request', concept: 'Content Opportunity',
+        canonical_question: 'Could you also upload the source code?',
+      }),
+    ], [], []);
+
+    expect(result.contentOpportunities).toHaveLength(2);
+    expect(result.contentOpportunities.map((action) => action.supportingSignalCount)).toEqual([1, 1]);
   });
 
   it('promotes specific praise but retains generic praise only in accounting', () => {

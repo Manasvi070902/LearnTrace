@@ -147,12 +147,11 @@ function LearningGroups({ actions, onOpen, compact }: { actions: CreatorAction[]
   const currentPage = Math.min(page, pageCount - 1);
   const visibleActions = activeActions.slice(currentPage * pageSize, (currentPage + 1) * pageSize);
   useEffect(() => { setPage(0); }, [tab, pageSize]);
-  useEffect(() => {
-    if (groups[tab].length) return;
-    if (groups.attention.length) setTab('attention');
-    else if (groups.repeated.length) setTab('repeated');
-    else setTab('individual');
-  }, [actions, tab]);
+  const emptyMessage: Record<LearningTab, string> = {
+    attention: 'No learning questions have enough independent evidence to need attention yet.',
+    repeated: 'No repeated learner questions yet. LearnTrace will surface them when a similar question appears again.',
+    individual: 'No individual learner questions were found in the analyzed conversations.',
+  };
 
   return <section className="learning-browser" aria-label="Learning questions by evidence level">
     <div className="learning-tabs" role="tablist" aria-label="Learning question categories">
@@ -168,7 +167,7 @@ function LearningGroups({ actions, onOpen, compact }: { actions: CreatorAction[]
         <span className="pagination-dots" aria-hidden="true">{Array.from({ length: pageCount }, (_, index) => <i key={index} className={index === currentPage ? 'active' : ''} />)}</span>
         <button type="button" aria-label="Next questions" onClick={() => setPage((value) => Math.min(pageCount - 1, value + 1))} disabled={currentPage === pageCount - 1}>→</button>
       </nav>}
-    </> : <p className="learning-empty-state">No questions in this evidence level yet.</p>}
+    </> : <p className="learning-empty-state">{emptyMessage[tab]}</p>}
   </section>;
 }
 
@@ -216,23 +215,31 @@ function displayActionTitle(action: CreatorAction): string {
 
 function CategoryActionCarousel({ actions, onOpen }: { actions: CreatorAction[]; onOpen: (id: string) => void }) {
   const [index, setIndex] = useState(0);
+  const [showFullRequest, setShowFullRequest] = useState(false);
   const activeIndex = Math.min(index, Math.max(0, actions.length - 1));
   const action = actions[activeIndex];
-  useEffect(() => { setIndex(0); }, [actions]);
+  useEffect(() => { setIndex(0); setShowFullRequest(false); }, [actions]);
+  useEffect(() => { setShowFullRequest(false); }, [action?.id]);
   if (!action) return <p className="learning-empty-state">No audience signals in this category yet.</p>;
   const icon = CATEGORY_ICONS[action.category as Exclude<CategoryKey, 'learning'>] || 'content';
   const quote = action.evidence[0]?.commentText;
+  const isSingleContentRequest = action.category === 'content_opportunity' && action.supportingSignalCount === 1;
   return <section className={`category-action-carousel carousel-${action.category}`} aria-label={`${actionKind(action)} carousel`}>
-    <button type="button" className="category-feature-card" onClick={() => onOpen(action.id)} aria-label={`View details for ${actionLabel(action)}`}>
+    <button type="button" className="category-feature-card" onClick={() => isSingleContentRequest ? setShowFullRequest((visible) => !visible) : onOpen(action.id)} aria-label={isSingleContentRequest ? `${showFullRequest ? 'Hide' : 'Read'} full request for ${actionLabel(action)}` : `View details for ${actionLabel(action)}`} aria-expanded={isSingleContentRequest ? showFullRequest : undefined}>
       <span className="category-feature-icon"><LearnTraceIcon name={icon} size={31} /></span>
       <span className="category-feature-copy">
         <span className="category-feature-kind">{actionKind(action)}</span>
         <strong>{displayActionTitle(action)}</strong>
         <span className="category-feature-evidence">{quote ? `“${quote}”` : action.summary}</span>
-        {quote && action.category === 'content_opportunity' && <span className="category-feature-read-more">Read full request →</span>}
-        <span className="category-feature-footer"><span><LearnTraceIcon name="users" size={16} /> {action.supportingSignalCount} learner{action.supportingSignalCount === 1 ? '' : 's'} {action.category === 'content_opportunity' ? 'requested this' : 'raised this'}</span><em>View evidence →</em></span>
+        {quote && action.category === 'content_opportunity' && <span className="category-feature-read-more">{isSingleContentRequest && showFullRequest ? 'Hide full request ↑' : 'Read full request →'}</span>}
+        <span className="category-feature-footer"><span><LearnTraceIcon name="users" size={16} /> {action.supportingSignalCount} learner{action.supportingSignalCount === 1 ? '' : 's'} {action.category === 'content_opportunity' ? 'requested this' : 'raised this'}</span><em>{isSingleContentRequest ? (showFullRequest ? 'Shown inline' : 'Read inline') : 'View evidence →'}</em></span>
       </span>
     </button>
+    {isSingleContentRequest && showFullRequest && quote && <article className="inline-request-evidence" aria-label="Full learner request">
+      <span><LearnTraceIcon name="comment" size={17} /> Full learner request</span>
+      {action.evidence[0].isReply && action.evidence[0].parentCommentText && <p className="reply-context"><LearnTraceIcon name="reply" size={14} /> Reply to: {action.evidence[0].parentCommentText}</p>}
+      <p>{quote}</p>
+    </article>}
     {actions.length > 1 && <nav className="category-carousel-controls" aria-label="Category signals">
       <button type="button" aria-label="Previous signal" disabled={activeIndex === 0} onClick={() => setIndex((value) => Math.max(0, value - 1))}>←</button>
       <span className="pagination-dots" aria-hidden="true">{actions.map((item, itemIndex) => <i key={item.id} className={itemIndex === activeIndex ? 'active' : ''} />)}</span>
@@ -248,6 +255,12 @@ function InsightDrawer({ action, onClose }: { action: CreatorAction; onClose: ()
   const repeated = learning && (action.evidenceStrength === 'strong' || action.evidenceStrength === 'recurring');
   const hasInterpretation = learning && action.source === 'phase6_ai';
   const status = hasInterpretation ? 'Needs attention' : repeated ? 'Repeated question' : learning ? 'Learner question' : action.title;
+  const learnerQuestion = action.canonicalQuestion || action.evidence[0]?.commentText || null;
+  const displayedAudienceRequest = action.category === 'content_opportunity'
+    ? action.canonicalQuestion || action.evidence[0]?.commentText
+    : action.evidence[0]?.commentText;
+  const usesCanonicalRequest = action.category === 'content_opportunity' && Boolean(action.canonicalQuestion);
+  const supportingEvidence = usesCanonicalRequest ? action.evidence : action.evidence.slice(1);
   const recommendation = 'This question has come up more than once. Keep an eye on it as more comments are analyzed.';
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
@@ -263,8 +276,8 @@ function InsightDrawer({ action, onClose }: { action: CreatorAction; onClose: ()
     <span className={`insight-kind drawer-status ${hasInterpretation ? 'status-strong' : repeated ? 'status-repeated' : ''}`}>{hasInterpretation && <LearnTraceIcon name="flame" size={15} />}{repeated && !hasInterpretation && <LearnTraceIcon name="messages" size={15} />}{status}</span><h3>{displayActionTitle(action)}</h3>
     {hasInterpretation && action.learningFrictionStatus && <span className="difficulty-pill">{action.learningFrictionStatus} learning difficulty</span>}
     <p className="drawer-count">{action.supportingSignalCount} learner{action.supportingSignalCount === 1 ? '' : 's'} {repeated ? 'asked something similar' : 'asked this'}</p>
-    {learning && action.evidence[0] && <section className="drawer-section"><DrawerHeading icon="comment">{action.supportingSignalCount === 1 ? 'What the learner asked' : 'What learners are asking'}</DrawerHeading><p className="drawer-question">{action.evidence[0].commentText}</p><button type="button" className="drawer-comments-toggle" onClick={() => setShowComments((visible) => !visible)} aria-expanded={showComments}>{showComments ? 'Hide comments' : 'See comments'} →</button>{showComments && <ul className="evidence-list drawer-evidence">{action.evidence.map((item) => <li key={item.commentId}>{item.isReply && item.parentCommentText && <><span className="reply-context"><LearnTraceIcon name="reply" size={14} /> Reply to: {item.parentCommentText}</span></>}{item.commentText}</li>)}</ul>}</section>}
-    {!learning && action.evidence[0] && <section className="drawer-section"><DrawerHeading icon="comment">{action.category === 'content_opportunity' ? 'What learners requested' : 'What learners said'}</DrawerHeading><p className="drawer-question">{action.evidence[0].commentText}</p>{action.evidence.length > 1 && <><button type="button" className="drawer-comments-toggle" onClick={() => setShowComments((visible) => !visible)} aria-expanded={showComments}>{showComments ? 'Hide supporting comments' : `See ${action.evidence.length} supporting comments`} →</button>{showComments && <ul className="evidence-list drawer-evidence">{action.evidence.slice(1).map((item) => <li key={item.commentId}>{item.isReply && item.parentCommentText && <><span className="reply-context"><LearnTraceIcon name="reply" size={14} /> Reply to: {item.parentCommentText}</span></>}{item.commentText}</li>)}</ul>}</>}</section>}
+    {learning && learnerQuestion && <section className="drawer-section"><DrawerHeading icon="comment">{action.supportingSignalCount === 1 ? 'What the learner asked' : 'What learners are asking'}</DrawerHeading><p className="drawer-question">{learnerQuestion}</p><button type="button" className="drawer-comments-toggle" onClick={() => setShowComments((visible) => !visible)} aria-expanded={showComments}>{showComments ? 'Hide comments' : 'See supporting comments'} →</button>{showComments && <ul className="evidence-list drawer-evidence">{action.evidence.map((item) => <li key={item.commentId}>{item.isReply && item.parentCommentText && <><span className="reply-context"><LearnTraceIcon name="reply" size={14} /> Reply to: {item.parentCommentText}</span></>}{item.commentText}</li>)}</ul>}</section>}
+    {!learning && displayedAudienceRequest && <section className="drawer-section"><DrawerHeading icon="comment">{action.category === 'content_opportunity' ? 'What learners requested' : 'What learners said'}</DrawerHeading><p className="drawer-question">{displayedAudienceRequest}</p>{supportingEvidence.length > 0 && <><button type="button" className="drawer-comments-toggle" onClick={() => setShowComments((visible) => !visible)} aria-expanded={showComments}>{showComments ? 'Hide supporting comments' : `See ${supportingEvidence.length} supporting comment${supportingEvidence.length === 1 ? '' : 's'}`} →</button>{showComments && <ul className="evidence-list drawer-evidence">{supportingEvidence.map((item) => <li key={item.commentId}>{item.isReply && item.parentCommentText && <><span className="reply-context"><LearnTraceIcon name="reply" size={14} /> Reply to: {item.parentCommentText}</span></>}{item.commentText}</li>)}</ul>}</>}</section>}
     {hasInterpretation && <section className="drawer-section"><DrawerHeading icon="sparkles">What LearnTrace noticed</DrawerHeading><p>{action.summary}</p></section>}
     {hasInterpretation && <section className="drawer-section drawer-action"><DrawerHeading icon="content">What you could try</DrawerHeading><p>{action.suggestedAction}</p></section>}
     {learning && repeated && !hasInterpretation && <section className="drawer-section drawer-watch"><DrawerHeading icon="eye">Worth watching</DrawerHeading><p>{recommendation}</p></section>}

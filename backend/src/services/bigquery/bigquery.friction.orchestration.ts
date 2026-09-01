@@ -23,13 +23,40 @@ import { getVideoStats } from './bigquery.retrieval';
 import { deriveSignalDomain } from '../friction/signal-domain.service';
 
 const LEARNING_SIGNAL_MIN_CONFIDENCE = Number(process.env.LEARNING_SIGNAL_MIN_CONFIDENCE || 0.65);
+
+/**
+ * A reply can add helpful context, but a short acknowledgement of another
+ * learner's question is not independent evidence that the same difficulty
+ * recurs. Keep substantive replies; reject only clear, terse follow-ups.
+ */
+export function isIndependentLearningQuestion(analysis: CommentAnalysisRow): boolean {
+  if (!analysis.is_reply) return true;
+
+  const text = analysis.comment_text?.trim().toLowerCase();
+  if (!text) return true;
+
+  // A question mark or a longer reply is more likely to contain its own
+  // learning difficulty. When uncertain, preserve the signal.
+  if (text.includes('?') || text.length > 100) return true;
+
+  const acknowledgementPatterns = [
+    /^(same|same here|me too|i have the same question)[.!]*$/,
+    /^(that'?s|this is) (the )?same (thing )?(i'?m|i am) trying to figure out[.!]*$/,
+    /^(i'?m|i am) still confused[.!]*$/,
+    /^(still )?confused[.!]*$/,
+  ];
+
+  return !acknowledgementPatterns.some((pattern) => pattern.test(text));
+}
+
 /** Phase 5 consumes only the cached, qualifying Phase 4 learning signals. */
 export function isEligibleLearningSignal(analysis: CommentAnalysisRow): boolean {
   return Boolean(
     analysis.is_learning_signal &&
     analysis.canonical_question?.trim() &&
     analysis.confidence >= LEARNING_SIGNAL_MIN_CONFIDENCE &&
-    deriveSignalDomain(analysis) === 'learning_conceptual'
+    deriveSignalDomain(analysis) === 'learning_conceptual' &&
+    isIndependentLearningQuestion(analysis)
   );
 }
 
@@ -72,6 +99,9 @@ export async function analyzeFrictionForVideo(videoId: string): Promise<Friction
 
   // Step 2: Filter for valid learning signals
   const learningSignals = allAnalyses.filter(isEligibleLearningSignal);
+  const contextualReplies = allAnalyses.filter(
+    (analysis) => analysis.is_reply && !isIndependentLearningQuestion(analysis)
+  ).length;
   const technicalBarriers = allAnalyses.filter((analysis) => deriveSignalDomain(analysis) === 'technical_barrier').length;
   const curriculumNavigationSignals = allAnalyses.filter(
     (analysis) => deriveSignalDomain(analysis) === 'curriculum_navigation'
@@ -81,6 +111,7 @@ export async function analyzeFrictionForVideo(videoId: string): Promise<Friction
   const availableComments = videoStats?.totalRecords ?? 0;
 
   console.log(`[Friction Analysis] Valid learning signals: ${learningSignals.length}`);
+  console.log(`[Friction Analysis] Reply-only follow-ups excluded from recurrence: ${contextualReplies}`);
 
   if (learningSignals.length === 0) {
     return {
