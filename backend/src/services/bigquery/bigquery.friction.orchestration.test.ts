@@ -17,10 +17,11 @@ describe('Phase 5 source selection', () => {
     expect(isEligibleLearningSignal(signal({ intent: 'content_request' }))).toBe(false);
   });
 
-  it('keeps genuine learning questions eligible but excludes playlist navigation', () => {
+  it('keeps genuine learning questions eligible but excludes curriculum navigation', () => {
     expect(isEligibleLearningSignal(signal({ intent: 'conceptual_confusion' }))).toBe(true);
     expect(isEligibleLearningSignal(signal({ canonical_question: 'How do I identify a two pointer problem?', concept: 'Two Pointers' }))).toBe(true);
     expect(isEligibleLearningSignal(signal({ canonical_question: 'Is the A2Z playlist ordered sequentially?', concept: 'A2Z playlist organization' }))).toBe(false);
+    expect(isEligibleLearningSignal(signal({ canonical_question: 'Is DP on trees covered in this playlist?', concept: 'Dynamic Programming' }))).toBe(false);
   });
 
   it('requires a canonical question and 0.65 confidence', () => {

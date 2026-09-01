@@ -141,6 +141,7 @@ export interface FrictionReport {
   conceptsWithEvidence: number;
   conceptsInsufficientEvidence: number;
   technicalBarriers: number;
+  curriculumNavigationSignals: number;
 }
 
 export interface FrictionResponse {

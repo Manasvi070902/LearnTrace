@@ -29,7 +29,7 @@ export function isEligibleLearningSignal(analysis: CommentAnalysisRow): boolean 
     analysis.is_learning_signal &&
     analysis.canonical_question?.trim() &&
     analysis.confidence >= LEARNING_SIGNAL_MIN_CONFIDENCE &&
-    deriveSignalDomain(analysis) === 'learning'
+    deriveSignalDomain(analysis) === 'learning_conceptual'
   );
 }
 
@@ -46,6 +46,7 @@ export interface FrictionAnalysisReport {
   conceptsWithEvidence: number;
   conceptsInsufficientEvidence: number;
   technicalBarriers: number;
+  curriculumNavigationSignals: number;
   frictionScores: FrictionRow[];
 }
 
@@ -71,7 +72,10 @@ export async function analyzeFrictionForVideo(videoId: string): Promise<Friction
 
   // Step 2: Filter for valid learning signals
   const learningSignals = allAnalyses.filter(isEligibleLearningSignal);
-  const technicalBarriers = allAnalyses.filter((analysis) => deriveSignalDomain(analysis) === 'technical').length;
+  const technicalBarriers = allAnalyses.filter((analysis) => deriveSignalDomain(analysis) === 'technical_barrier').length;
+  const curriculumNavigationSignals = allAnalyses.filter(
+    (analysis) => deriveSignalDomain(analysis) === 'curriculum_navigation'
+  ).length;
 
   const videoStats = await getVideoStats(videoId);
   const availableComments = videoStats?.totalRecords ?? 0;
@@ -92,6 +96,7 @@ export async function analyzeFrictionForVideo(videoId: string): Promise<Friction
       conceptsWithEvidence: 0,
       conceptsInsufficientEvidence: 0,
       technicalBarriers,
+      curriculumNavigationSignals,
       frictionScores: [],
     };
   }
@@ -294,6 +299,7 @@ export async function analyzeFrictionForVideo(videoId: string): Promise<Friction
     conceptsWithEvidence,
     conceptsInsufficientEvidence,
     technicalBarriers,
+    curriculumNavigationSignals,
     frictionScores: frictionRows,
   };
 }

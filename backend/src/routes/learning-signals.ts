@@ -132,6 +132,7 @@ router.post('/video/:videoId/learning-signals', async (req: Request, res: Respon
         conceptsWithEvidence: frictionReport.conceptsWithEvidence,
         conceptsInsufficientEvidence: frictionReport.conceptsInsufficientEvidence,
         technicalBarriers: frictionReport.technicalBarriers,
+        curriculumNavigationSignals: frictionReport.curriculumNavigationSignals,
       },
       confusionMap: frictionReport.frictionScores,
     });
