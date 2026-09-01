@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { generateConceptDiagnosis, getConceptClusters, getConceptDiagnosis } from '../services/api';
 import { AiInterpretation, DiagnosisResponse, FrictionReport, FrictionScore, QuestionClusterDetail } from '../types';
+import { CreatorActionsView } from './CreatorActionsView';
 
 interface ConfusionMapViewProps {
   videoId: string;
@@ -130,6 +131,7 @@ export function ConfusionMapView({ videoId, report, confusionMap }: ConfusionMap
           </section>
         </section>
       )}
+      <CreatorActionsView videoId={videoId} />
     </section>
   );
 }

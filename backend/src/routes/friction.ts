@@ -7,13 +7,16 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { videoExists } from '../services/bigquery/bigquery.analysis';
+import { getAnalysisForVideo, getCommentsForVideo, videoExists } from '../services/bigquery/bigquery.analysis';
 import { analyzeFrictionForVideo, getFrictionAnalysisForVideo } from '../services/bigquery/bigquery.friction.orchestration';
 import { getVideoClusters, getClusterEvidence } from '../services/bigquery/bigquery.friction';
 import { normalizeConcept } from '../services/clustering/concept-normalizer';
 import { CLUSTERING_VERSION } from '../services/clustering/clustering.service';
 import { getConfiguredDiagnosisModel, buildEvidencePacket, fingerprintEvidence, generateAiInterpretation, isInterpretationEligible, PHASE6_DIAGNOSIS_VERSION } from '../services/phase6/interpretation.service';
 import { getCachedDiagnosis, storeDiagnosis } from '../services/bigquery/bigquery.diagnosis';
+import { buildCreatorActions } from '../services/creator-actions/creator-actions.service';
+import { PROMPT_VERSION } from '../prompts/comment-analysis.prompt';
+import { getConfiguredGeminiModel } from '../services/gemini/comment-analysis.service';
 
 const router = Router();
 
@@ -216,6 +219,61 @@ router.post('/video/:videoId/concepts/:concept/diagnosis', async (req: Request, 
     return res.json({ status: 'success', eligible: true, cached: false, interpretation: row, evidence: packet });
   } catch {
     return res.status(503).json({ status: 'error', error: 'AI interpretation is temporarily unavailable.' });
+  }
+});
+
+/**
+ * GET /api/analyze/video/:videoId/creator-actions
+ *
+ * Builds a creator-facing overview from cached Phase 4/5/6A records only.
+ * This endpoint never generates Gemini content or embeddings.
+ */
+router.get('/video/:videoId/creator-actions', async (req: Request, res: Response) => {
+  try {
+    const videoId = String(req.params.videoId);
+    const [analyses, comments, frictionScores, clusterRows] = await Promise.all([
+      getAnalysisForVideo(videoId, PROMPT_VERSION, getConfiguredGeminiModel()),
+      getCommentsForVideo(videoId),
+      getFrictionAnalysisForVideo(videoId),
+      getVideoClusters(videoId, CLUSTERING_VERSION),
+    ]);
+    const commentsById = new Map(comments.map((comment) => [comment.comment_id, comment]));
+    const clusters = await Promise.all(clusterRows.map(async (cluster) => ({
+      ...cluster,
+      evidence: await getClusterEvidence(cluster.cluster_id),
+    })));
+
+    // Reuse an existing valid Phase 6A interpretation when available. There is
+    // deliberately no generation path in this read-only endpoint.
+    const diagnoses = new Map();
+    for (const score of frictionScores || []) {
+      const conceptClusters = clusters.filter((cluster) => normalizeConcept(cluster.primary_concept) === score.normalized_concept);
+      if (!isInterpretationEligible(score, conceptClusters)) continue;
+      const packet = buildEvidencePacket(videoId, score.normalized_concept, score, conceptClusters);
+      const cached = await getCachedDiagnosis(videoId, score.normalized_concept, getConfiguredDiagnosisModel(), fingerprintEvidence(packet));
+      if (cached) diagnoses.set(score.normalized_concept, cached);
+    }
+
+    const result = buildCreatorActions(
+      analyses.map((analysis) => ({
+        ...analysis,
+        comment_text: commentsById.get(analysis.comment_id)?.comment_text || '',
+        is_reply: commentsById.get(analysis.comment_id)?.is_reply || false,
+      })),
+      clusters,
+      frictionScores || [],
+      diagnoses,
+    );
+    return res.json({
+      status: 'success',
+      videoId,
+      ...result,
+      // Retained for development/data-quality inspection; the normal creator
+      // UI intentionally does not foreground non-actionable noise.
+      debug: { commentAccounting: result.audienceOverview },
+    });
+  } catch (error) {
+    return res.status(500).json({ status: 'error', error: error instanceof Error ? error.message : 'Could not load creator actions.' });
   }
 });
 

@@ -190,3 +190,58 @@ export interface DiagnosisResponse {
   interpretation?: AiInterpretation | null;
   error?: string;
 }
+
+export type CreatorActionCategory = 'learning' | 'technical' | 'curriculum_navigation' | 'content_opportunity' | 'actionable_feedback' | 'positive_signal' | 'peer_discussion' | 'other_useful';
+export type EvidenceStrength = 'emerging' | 'recurring' | 'strong';
+
+export interface CreatorActionEvidence {
+  commentId: string;
+  commentText: string;
+}
+
+export interface CreatorAction {
+  id: string;
+  category: CreatorActionCategory;
+  title: string;
+  summary: string;
+  suggestedAction: string;
+  evidenceStrength: EvidenceStrength;
+  supportingSignalCount: number;
+  concept: string | null;
+  learningFrictionScore: number | null;
+  learningFrictionStatus: string | null;
+  recurringQuestionCount: number;
+  evidenceIds: string[];
+  evidence: CreatorActionEvidence[];
+  source: 'deterministic' | 'phase6_ai';
+}
+
+export interface AudienceOverview {
+  analyzed: number;
+  recurringLearningQuestions: number;
+  learning: number;
+  technical: number;
+  curriculum_navigation: number;
+  content_opportunity: number;
+  actionable_feedback: number;
+  positive_signal: number;
+  peer_discussion: number;
+  other_useful: number;
+  noise: number;
+}
+
+export interface CreatorActionsResponse {
+  status: 'success' | 'error';
+  videoId?: string;
+  audienceOverview?: AudienceOverview;
+  creatorActions?: CreatorAction[];
+  learningInsights?: CreatorAction[];
+  technicalBarriers?: CreatorAction[];
+  curriculumNavigation?: CreatorAction[];
+  contentOpportunities?: CreatorAction[];
+  improvementOpportunities?: CreatorAction[];
+  positiveSignals?: CreatorAction[];
+  peerLearning?: CreatorAction[];
+  otherUseful?: CreatorAction[];
+  error?: string;
+}

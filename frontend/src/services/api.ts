@@ -1,4 +1,4 @@
-import { AnalyzeVideoResponse, ConceptClustersResponse, DiagnosisResponse, FrictionResponse, LearningSignalResponse, VideoStats } from '../types';
+import { AnalyzeVideoResponse, ConceptClustersResponse, CreatorActionsResponse, DiagnosisResponse, FrictionResponse, LearningSignalResponse, VideoStats } from '../types';
 
 const API_BASE_URL = 'http://localhost:3001/api';
 
@@ -97,4 +97,12 @@ export async function generateConceptDiagnosis(videoId: string, concept: string)
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || 'AI interpretation is temporarily unavailable.');
   return data as DiagnosisResponse;
+}
+
+/** Loads cached creator-facing signals only; this endpoint never generates AI content. */
+export async function getCreatorActions(videoId: string): Promise<CreatorActionsResponse> {
+  const response = await fetch(`${API_BASE_URL}/analyze/video/${encodeURIComponent(videoId)}/creator-actions`);
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || 'Could not load creator actions.');
+  return data as CreatorActionsResponse;
 }
