@@ -131,13 +131,15 @@ async function mergeBatchComments(
   batch: CommentRow[]
 ): Promise<void> {
   // Build the VALUES list for the USING clause
-  // Each row becomes: ('id','vid',NULL,'text','ts',0,0,false,'ts')
+  // Each row becomes a typed comment record including nullable author identity.
   const valueRows = batch.map((r) => {
     const parentId = r.parent_comment_id ? `'${escapeSql(r.parent_comment_id)}'` : 'NULL';
+    const authorChannelId = r.author_channel_id ? `'${escapeSql(r.author_channel_id)}'` : 'NULL';
+    const authorName = r.author_name ? `'${escapeSql(r.author_name)}'` : 'NULL';
     return (
       `('${escapeSql(r.comment_id)}','${escapeSql(r.video_id)}',${parentId},` +
       `'${escapeSql(r.comment_text)}',TIMESTAMP('${r.published_at}'),` +
-      `${r.like_count},${r.reply_count},${r.is_reply},TIMESTAMP('${r.fetched_at}'))`
+      `${r.like_count},${r.reply_count},${r.is_reply},${authorChannelId},${authorName},TIMESTAMP('${r.fetched_at}'))`
     );
   });
 
@@ -148,7 +150,7 @@ async function mergeBatchComments(
         STRUCT<
           comment_id STRING, video_id STRING, parent_comment_id STRING,
           comment_text STRING, published_at TIMESTAMP,
-          like_count INT64, reply_count INT64, is_reply BOOL, fetched_at TIMESTAMP
+          like_count INT64, reply_count INT64, is_reply BOOL, author_channel_id STRING, author_name STRING, fetched_at TIMESTAMP
         >
         ${valueRows.join(',\n        ')}
       ])
@@ -163,12 +165,14 @@ async function mergeBatchComments(
         like_count        = source.like_count,
         reply_count       = source.reply_count,
         is_reply          = source.is_reply,
+        author_channel_id = source.author_channel_id,
+        author_name       = source.author_name,
         fetched_at        = source.fetched_at
     WHEN NOT MATCHED THEN
       INSERT (comment_id, video_id, parent_comment_id, comment_text,
-              published_at, like_count, reply_count, is_reply, fetched_at)
+              published_at, like_count, reply_count, is_reply, author_channel_id, author_name, fetched_at)
       VALUES (source.comment_id, source.video_id, source.parent_comment_id, source.comment_text,
-              source.published_at, source.like_count, source.reply_count, source.is_reply, source.fetched_at)
+              source.published_at, source.like_count, source.reply_count, source.is_reply, source.author_channel_id, source.author_name, source.fetched_at)
   `;
 
   await bq.query({

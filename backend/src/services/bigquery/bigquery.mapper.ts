@@ -27,6 +27,8 @@ export interface CommentRow {
   like_count: number;
   reply_count: number;
   is_reply: boolean;
+  author_channel_id: string | null;
+  author_name: string | null;
   fetched_at: string;
 }
 
@@ -68,6 +70,8 @@ export function mapCommentToRow(
     like_count: comment.likeCount ?? 0,
     reply_count: comment.totalReplyCount ?? 0,
     is_reply: false,
+    author_channel_id: comment.authorChannelId || null,
+    author_name: comment.authorDisplayName || null,
     fetched_at: fetchedAt,
   };
 }
@@ -91,6 +95,8 @@ export function mapReplyToRow(
     like_count: reply.likeCount ?? 0,
     reply_count: 0, // replies don't have reply counts
     is_reply: true,
+    author_channel_id: reply.authorChannelId || null,
+    author_name: reply.authorDisplayName || null,
     fetched_at: fetchedAt,
   };
 }

@@ -1,5 +1,5 @@
 import { getBigQueryClient } from './bigquery.client';
-import { VIDEOS_TABLE_SCHEMA, COMMENTS_TABLE_SCHEMA, COMMENT_ANALYSIS_TABLE_SCHEMA, ANALYSIS_RUNS_TABLE_SCHEMA, QUESTION_EMBEDDINGS_TABLE_SCHEMA, QUESTION_CLUSTERS_TABLE_SCHEMA, QUESTION_CLUSTER_MEMBERS_TABLE_SCHEMA, LEARNING_FRICTION_TABLE_SCHEMA, CONCEPT_DIAGNOSIS_TABLE_SCHEMA, TABLE_NAMES } from './bigquery.schema';
+import { VIDEOS_TABLE_SCHEMA, COMMENTS_TABLE_SCHEMA, COMMENT_ANALYSIS_TABLE_SCHEMA, ANALYSIS_RUNS_TABLE_SCHEMA, QUESTION_EMBEDDINGS_TABLE_SCHEMA, QUESTION_CLUSTERS_TABLE_SCHEMA, QUESTION_CLUSTER_MEMBERS_TABLE_SCHEMA, LEARNING_FRICTION_TABLE_SCHEMA, CONCEPT_DIAGNOSIS_TABLE_SCHEMA, RESPONSE_WORKFLOW_TABLE_SCHEMA, RESPONSE_DRAFTS_TABLE_SCHEMA, TABLE_NAMES } from './bigquery.schema';
 
 /**
  * Ensures the BigQuery dataset and required tables exist.
@@ -40,6 +40,8 @@ export async function initializeBigQueryTables(): Promise<void> {
   await ensureTable(dataset, TABLE_NAMES.QUESTION_CLUSTER_MEMBERS, QUESTION_CLUSTER_MEMBERS_TABLE_SCHEMA);
   await ensureTable(dataset, TABLE_NAMES.LEARNING_FRICTION, LEARNING_FRICTION_TABLE_SCHEMA);
   await ensureTable(dataset, TABLE_NAMES.CONCEPT_DIAGNOSIS, CONCEPT_DIAGNOSIS_TABLE_SCHEMA);
+  await ensureTable(dataset, TABLE_NAMES.RESPONSE_WORKFLOW, RESPONSE_WORKFLOW_TABLE_SCHEMA);
+  await ensureTable(dataset, TABLE_NAMES.RESPONSE_DRAFTS, RESPONSE_DRAFTS_TABLE_SCHEMA);
 
   console.log(`[BigQuery] Tables verified in dataset '${datasetId}'.`);
 }
@@ -55,6 +57,12 @@ async function ensureTable(
     await dataset.createTable(tableId, { schema });
     console.log(`[BigQuery] Created table '${tableId}'.`);
   } else {
-    console.log(`[BigQuery] Table '${tableId}' already exists — skipping creation.`);
+    const [metadata] = await table.getMetadata();
+    const existing = new Set((metadata.schema?.fields || []).map((field: { name: string }) => field.name));
+    const missing = schema.filter((field: any) => !existing.has(field.name));
+    if (missing.length) {
+      await table.setMetadata({ schema: { fields: [...(metadata.schema?.fields || []), ...missing] } });
+      console.log(`[BigQuery] Added ${missing.length} field(s) to table '${tableId}'.`);
+    } else console.log(`[BigQuery] Table '${tableId}' already exists — skipping creation.`);
   }
 }

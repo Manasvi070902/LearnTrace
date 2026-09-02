@@ -1,4 +1,5 @@
 import { CommentAnalysis, getConfiguredGeminiModel } from '../gemini/comment-analysis.service';
+import { PROMPT_VERSION } from '../../prompts/comment-analysis.prompt';
 import { getBigQueryClient } from './bigquery.client';
 import { TABLE_NAMES } from './bigquery.schema';
 
@@ -36,7 +37,7 @@ export interface AnalysisRun {
 }
 
 export function mapAnalysisToRow(videoId: string, analysis: CommentAnalysis, analyzedAt = new Date().toISOString()): CommentAnalysisRow {
-  return { comment_id: analysis.commentId, video_id: videoId, intent: analysis.intent, is_learning_signal: analysis.isLearningSignal, canonical_question: analysis.canonicalQuestion, concept: analysis.concept, confusion_strength: analysis.confusionStrength, confidence: analysis.confidence, reason: analysis.reason, model_name: getConfiguredGeminiModel(), prompt_version: 'v1', analyzed_at: analyzedAt };
+  return { comment_id: analysis.commentId, video_id: videoId, intent: analysis.intent, is_learning_signal: analysis.isLearningSignal, canonical_question: analysis.canonicalQuestion, concept: analysis.concept, confusion_strength: analysis.confusionStrength, confidence: analysis.confidence, reason: analysis.reason, model_name: getConfiguredGeminiModel(), prompt_version: PROMPT_VERSION, analyzed_at: analyzedAt };
 }
 
 /** Cached Phase 4 results are identified by comment and prompt version. */
@@ -62,12 +63,31 @@ export async function getDailyAnalysisUsage(): Promise<{ requestsToday: number; 
   return { requestsToday: Number(row.requests_today || 0), commentsAnalyzedToday: Number(row.comments_analyzed_today || 0), cacheHitsToday: Number(row.cache_hits_today || 0), lastModelUsed: modelRows?.[0]?.model_name || null };
 }
 
-export async function getCommentsForVideo(videoId: string): Promise<Array<{ comment_id: string; parent_comment_id: string | null; comment_text: string; is_reply: boolean; like_count: number; published_at: string }>> {
+export interface StoredComment {
+  comment_id: string;
+  parent_comment_id: string | null;
+  comment_text: string;
+  is_reply: boolean;
+  like_count: number;
+  published_at: string;
+  author_channel_id: string | null;
+  author_name: string | null;
+}
+
+export async function getCommentsForVideo(videoId: string): Promise<StoredComment[]> {
   const [rows] = await getBigQueryClient().query({
-    query: `SELECT comment_id, parent_comment_id, comment_text, is_reply, like_count, CAST(published_at AS STRING) AS published_at FROM \`${process.env.GOOGLE_CLOUD_PROJECT_ID}.${process.env.BIGQUERY_DATASET}.${TABLE_NAMES.COMMENTS}\` WHERE video_id = @video_id ORDER BY published_at, comment_id`,
+    query: `SELECT comment_id, parent_comment_id, comment_text, is_reply, like_count, CAST(published_at AS STRING) AS published_at, author_channel_id, author_name FROM \`${process.env.GOOGLE_CLOUD_PROJECT_ID}.${process.env.BIGQUERY_DATASET}.${TABLE_NAMES.COMMENTS}\` WHERE video_id = @video_id ORDER BY published_at, comment_id`,
     params: { video_id: videoId }, location: process.env.BIGQUERY_LOCATION,
   });
-  return rows as Array<{ comment_id: string; parent_comment_id: string | null; comment_text: string; is_reply: boolean; like_count: number; published_at: string }>;
+  return rows as StoredComment[];
+}
+
+export async function getVideoChannelId(videoId: string): Promise<string | null> {
+  const [rows] = await getBigQueryClient().query({
+    query: `SELECT channel_id FROM \`${process.env.GOOGLE_CLOUD_PROJECT_ID}.${process.env.BIGQUERY_DATASET}.${TABLE_NAMES.VIDEOS}\` WHERE video_id = @video_id LIMIT 1`,
+    params: { video_id: videoId }, location: process.env.BIGQUERY_LOCATION,
+  });
+  return rows?.[0]?.channel_id || null;
 }
 
 export async function videoExists(videoId: string): Promise<boolean> {

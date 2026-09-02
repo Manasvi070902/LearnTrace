@@ -26,6 +26,8 @@ export const COMMENTS_TABLE_SCHEMA: TableField[] = [
   { name: 'like_count',        type: 'INT64',     mode: 'REQUIRED' },
   { name: 'reply_count',       type: 'INT64',     mode: 'REQUIRED' },
   { name: 'is_reply',          type: 'BOOL',      mode: 'REQUIRED' },
+  { name: 'author_channel_id', type: 'STRING',    mode: 'NULLABLE' },
+  { name: 'author_name',       type: 'STRING',    mode: 'NULLABLE' },
   { name: 'fetched_at',        type: 'TIMESTAMP', mode: 'REQUIRED' },
 ];
 
@@ -123,6 +125,35 @@ export const CONCEPT_DIAGNOSIS_TABLE_SCHEMA: TableField[] = [
   { name: 'created_at', type: 'TIMESTAMP', mode: 'REQUIRED' },
 ];
 
+export const RESPONSE_WORKFLOW_TABLE_SCHEMA: TableField[] = [
+  { name: 'workflow_id', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'video_id', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'source_category', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'source_insight_id', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'title', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'normalized_need', type: 'STRING', mode: 'NULLABLE' },
+  { name: 'supporting_comment_ids', type: 'STRING', mode: 'REPEATED' },
+  { name: 'priority', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'resolution_status', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'resolution_source', type: 'STRING', mode: 'NULLABLE' },
+  { name: 'resolved_at', type: 'TIMESTAMP', mode: 'NULLABLE' },
+  { name: 'creator_reply_comment_id', type: 'STRING', mode: 'NULLABLE' },
+  { name: 'community_reply_comment_id', type: 'STRING', mode: 'NULLABLE' },
+  { name: 'suggested_response_type', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'created_at', type: 'TIMESTAMP', mode: 'REQUIRED' },
+  { name: 'updated_at', type: 'TIMESTAMP', mode: 'REQUIRED' },
+];
+
+export const RESPONSE_DRAFTS_TABLE_SCHEMA: TableField[] = [
+  { name: 'draft_id', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'workflow_id', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'video_id', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'context_version', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'draft_text', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'model_name', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'created_at', type: 'TIMESTAMP', mode: 'REQUIRED' },
+];
+
 export const TABLE_NAMES = {
   VIDEOS: 'videos',
   COMMENTS: 'comments',
@@ -133,4 +164,6 @@ export const TABLE_NAMES = {
   QUESTION_CLUSTER_MEMBERS: 'question_cluster_members',
   LEARNING_FRICTION: 'learning_friction',
   CONCEPT_DIAGNOSIS: 'concept_diagnosis',
+  RESPONSE_WORKFLOW: 'response_workflow',
+  RESPONSE_DRAFTS: 'response_drafts',
 } as const;

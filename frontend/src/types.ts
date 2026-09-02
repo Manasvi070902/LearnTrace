@@ -249,3 +249,14 @@ export interface CreatorActionsResponse {
   otherUseful?: CreatorAction[];
   error?: string;
 }
+
+export type ResponseWorkflowStatus = 'needs_response' | 'resolved' | 'community_answered' | 'unclear';
+export interface ResponseWorkflowEvidence { comment_id: string; parent_comment_id: string | null; comment_text: string; is_reply: boolean; published_at?: string; }
+export interface ResponseWorkflowItem {
+  workflowId: string; videoId: string; sourceCategory: CreatorActionCategory; sourceInsightId: string;
+  title: string; normalizedNeed: string | null; supportingCommentIds: string[]; priority: 'high' | 'medium' | 'low';
+  resolutionStatus: ResponseWorkflowStatus; resolutionSource: string | null; resolvedAt: string | null;
+  suggestedResponseType: string; evidence: ResponseWorkflowEvidence[];
+}
+export interface ResponseWorkflowResponse { status: 'success' | 'error'; videoId?: string; needsResponse?: ResponseWorkflowItem[]; resolved?: ResponseWorkflowItem[]; summary?: { total: number; needsResponse: number; resolved: number }; error?: string; }
+export interface ResponseDraftResponse { status: 'success' | 'error'; cached?: boolean; draft?: { draft_id: string; draft_text: string; created_at: string }; error?: string; }

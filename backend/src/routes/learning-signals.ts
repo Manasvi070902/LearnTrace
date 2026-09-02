@@ -97,7 +97,7 @@ router.post('/video/:videoId/learning-signals', async (req: Request, res: Respon
       }, async (batchResults) => {
         await upsertCommentAnalysis(batchResults.map((analysis) => mapAnalysisToRow(videoId, analysis)));
         run.results_stored += batchResults.length;
-      }) : [];
+      }, { videoId }) : [];
       run.gemini_requests = requestsMade;
       run.status = 'completed';
       run.completed_at = new Date().toISOString();
@@ -113,7 +113,7 @@ router.post('/video/:videoId/learning-signals', async (req: Request, res: Respon
     return res.json({
       status: 'success', videoId, availableComments: plan.availableConversations, alreadyAnalyzed: plan.alreadyAnalyzed,
       targetAnalyzed: plan.targetAnalyzed, newConversationsRequired: plan.newConversationsRequired, commentsSelected: selected.length,
-      commentsCached: 0, commentsSubmitted: pending.length, geminiRequests: requests,
+      commentsCached: 0, commentsSubmitted: pending.length, geminiRequests: requestsMade,
       resultsStored: fresh.length, commentsAnalyzed: analyses.length,
       learningSignals: analyses.filter((analysis) => analysis.is_learning_signal).length,
       intentCounts: analyses.reduce<Record<string, number>>((counts, analysis) => {

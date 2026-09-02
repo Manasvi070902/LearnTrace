@@ -77,6 +77,15 @@ describe('Creator Actions', () => {
     expect(action.evidenceIds).toHaveLength(3);
   });
 
+  it('does not apply a concept-level friction score to smaller sibling clusters', () => {
+    const actions = buildCreatorActions([], [cluster('strong', 3), cluster('repeated', 2), cluster('individual', 1)], [friction()]).learningInsights;
+    expect(actions.map((action) => ({ count: action.supportingSignalCount, strength: action.evidenceStrength, score: action.learningFrictionScore }))).toEqual([
+      { count: 3, strength: 'strong', score: 72 },
+      { count: 2, strength: 'recurring', score: null },
+      { count: 1, strength: 'emerging', score: null },
+    ]);
+  });
+
   it('aggregates technical, curriculum, content, and feedback signals without treating them as friction', () => {
     const signals = [
       signal({ comment_id: 't1', intent: 'technical_error', concept: 'Environment setup', comment_text: 'The setup fails.' }),

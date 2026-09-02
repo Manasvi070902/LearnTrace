@@ -2,6 +2,7 @@ import { CommentAnalysisRow } from '../bigquery/bigquery.analysis';
 import { ClusterEvidenceRow, ClusterRow, FrictionRow } from '../bigquery/bigquery.friction';
 import { normalizeConcept } from '../clustering/concept-normalizer';
 import { deriveSignalDomain } from '../friction/signal-domain.service';
+import { getMinSignalsForFrictionScore } from '../friction/friction-scoring.service';
 import { AiInterpretation } from '../phase6/interpretation.service';
 
 export type ProductDisposition =
@@ -267,24 +268,28 @@ function buildLearningInsights(
     const concept = normalizeConcept(cluster.primary_concept);
     const friction = frictionScores.find((score) => score.normalized_concept === concept) || null;
     const recurring = cluster.question_count >= 2;
-    const hasFrictionScore = friction?.learning_friction_score != null;
-    const strength = hasFrictionScore ? 'strong' : recurring ? 'recurring' : 'emerging';
-    const diagnosis = friction && diagnoses.get(concept);
+    // Friction is calculated at concept level, but a creator card represents
+    // one question cluster. Do not make a one- or two-signal cluster look
+    // AI-backed merely because a different cluster shares its concept.
+    const hasClusterFriction = friction?.learning_friction_score != null
+      && cluster.question_count >= getMinSignalsForFrictionScore();
+    const strength = hasClusterFriction ? 'strong' : recurring ? 'recurring' : 'emerging';
+    const diagnosis = hasClusterFriction ? diagnoses.get(concept) : undefined;
     const evidence = cluster.evidence.slice(0, 3).map((item) => ({
       commentId: item.comment_id,
       commentText: item.comment_text,
       isReply: item.is_reply,
       parentCommentText: item.parent_comment_text || null,
     }));
-    const title = diagnosis ? concept : hasFrictionScore
+    const title = diagnosis ? concept : hasClusterFriction
       ? 'Learning Friction'
       : recurring ? 'Recurring Learning Question' : 'Emerging Learning Question';
-    const summary = diagnosis?.possibleLearningGap || (hasFrictionScore
+    const summary = diagnosis?.possibleLearningGap || (hasClusterFriction
       ? 'Learning Friction is supported by the stored evidence. AI interpretation is temporarily unavailable.'
       : recurring
         ? 'Multiple learners are asking a similar question. Evidence is not yet strong enough for a Learning Friction score.'
         : 'An individual learner question was detected. More evidence is needed before treating it as recurring learning friction.');
-    const suggestedAction = diagnosis?.recommendedAction || (hasFrictionScore
+    const suggestedAction = diagnosis?.recommendedAction || (hasClusterFriction
       ? 'Review the recurring evidence and use the existing AI interpretation option when it becomes available.'
       : recurring
         ? 'Monitor this recurring learner question and consider clarifying it if more evidence accumulates.'
@@ -299,13 +304,13 @@ function buildLearningInsights(
       supportingSignalCount: cluster.question_count,
       concept,
       canonicalQuestion: cluster.cluster_label,
-      learningFrictionScore: friction?.learning_friction_score ?? null,
-      learningFrictionStatus: hasFrictionScore ? friction?.friction_level ?? null : null,
+      learningFrictionScore: hasClusterFriction ? friction?.learning_friction_score ?? null : null,
+      learningFrictionStatus: hasClusterFriction ? friction?.friction_level ?? null : null,
       recurringQuestionCount: recurring ? 1 : 0,
       evidenceIds: evidence.map((item) => item.commentId),
       evidence,
       source: diagnosis ? 'phase6_ai' : 'deterministic',
-      priority: basePriority('learning', strength, friction?.learning_friction_score ?? null),
+      priority: basePriority('learning', strength, hasClusterFriction ? friction?.learning_friction_score ?? null : null),
     };
   });
 }

@@ -1,7 +1,8 @@
 import { ReactNode, useEffect, useMemo, useRef, useState } from 'react';
-import { getCreatorActions } from '../services/api';
-import { CreatorAction, CreatorActionsResponse } from '../types';
+import { generateConceptDiagnosis, getConceptDiagnosis, getCreatorActions } from '../services/api';
+import { AiInterpretation, CreatorAction, CreatorActionsResponse } from '../types';
 import { LearnTraceIcon, LearnTraceIconName } from './LearnTraceIcon';
+import { ResponseWorkflowView } from './ResponseWorkflowView';
 
 interface CreatorActionsViewProps { videoId: string; }
 
@@ -134,6 +135,7 @@ export function CreatorActionsView({ videoId }: CreatorActionsViewProps) {
         <span className="category-cta">{category.cta}</span>
       </button>)}</div>
     </section>
+    <ResponseWorkflowView videoId={videoId} />
 
     {selected && <section className="category-panel" ref={categoryPanelRef} tabIndex={-1}>
       <div className="category-panel-heading"><div><span className="category-detail-label">{selected.key === 'actionable_feedback' || selected.key === 'positive_signal' || selected.key === 'curriculum_navigation' ? <><LearnTraceIcon name={selected.icon} size={16} /> {selected.label}</> : selected.label}</span><h3>{selected.heading}</h3><p>{selected.description}</p></div><button type="button" className="text-button" onClick={() => { setSelectedCategory(null); setOpenInsight(null); }}>Close</button></div>
@@ -142,7 +144,7 @@ export function CreatorActionsView({ videoId }: CreatorActionsViewProps) {
         ? <ThemeRows actions={selectedActions} category={selected.key} onOpen={setOpenInsight} />
         : <CategoryActionCarousel actions={selectedActions} onOpen={setOpenInsight} />)}
     </section>}
-    {selectedInsight && <InsightDrawer action={selectedInsight} onClose={() => setOpenInsight(null)} />}
+    {selectedInsight && <InsightDrawer action={selectedInsight} videoId={videoId} onClose={() => setOpenInsight(null)} />}
   </section>;
 }
 
@@ -337,14 +339,20 @@ function CategoryActionCarousel({ actions, onOpen }: { actions: CreatorAction[];
   </section>;
 }
 
-function InsightDrawer({ action, onClose }: { action: CreatorAction; onClose: () => void }) {
+function InsightDrawer({ action, videoId, onClose }: { action: CreatorAction; videoId: string; onClose: () => void }) {
   const [showComments, setShowComments] = useState(false);
+  const [diagnosis, setDiagnosis] = useState<AiInterpretation | null>(null);
+  const [diagnosisEligible, setDiagnosisEligible] = useState(false);
+  const [diagnosisChecked, setDiagnosisChecked] = useState(false);
+  const [diagnosisMessage, setDiagnosisMessage] = useState<string | null>(null);
+  const [diagnosisError, setDiagnosisError] = useState<string | null>(null);
+  const [generatingDiagnosis, setGeneratingDiagnosis] = useState(false);
   const learning = action.category === 'learning';
   const feedback = action.category === 'actionable_feedback';
   const positive = action.category === 'positive_signal';
   const course = action.category === 'curriculum_navigation';
   const repeated = learning && (action.evidenceStrength === 'strong' || action.evidenceStrength === 'recurring');
-  const hasInterpretation = learning && action.source === 'phase6_ai';
+  const hasInterpretation = learning && (action.source === 'phase6_ai' || Boolean(diagnosis));
   const status = hasInterpretation ? 'Needs attention' : repeated ? 'Repeated question' : learning ? 'Learner question' : feedback ? 'Video Feedback' : positive ? 'What Worked' : course ? 'Course & Learning Path' : action.title;
   const learnerQuestion = action.canonicalQuestion || action.evidence[0]?.commentText || null;
   const normalizedCourseQuestion = courseQuestion(action);
@@ -365,6 +373,21 @@ function InsightDrawer({ action, onClose }: { action: CreatorAction; onClose: ()
     document.body.classList.add('insight-drawer-open');
     return () => document.body.classList.remove('insight-drawer-open');
   }, []);
+  useEffect(() => {
+    let active = true;
+    setDiagnosis(null); setDiagnosisEligible(false); setDiagnosisChecked(false); setDiagnosisMessage(null); setDiagnosisError(null);
+    if (!learning || !action.concept) return () => { active = false; };
+    void getConceptDiagnosis(videoId, action.concept)
+      .then((result) => {
+        if (!active) return;
+        setDiagnosisChecked(true);
+        setDiagnosisEligible(Boolean(result.eligible));
+        setDiagnosisMessage(result.message || result.supportingText || null);
+        setDiagnosis(result.interpretation || null);
+      })
+      .catch(() => { if (active) { setDiagnosisChecked(true); setDiagnosisMessage('AI interpretation eligibility could not be checked right now.'); } });
+    return () => { active = false; };
+  }, [action.id, action.concept, learning, videoId]);
   const countText = learning
     ? `${action.supportingSignalCount} learner${action.supportingSignalCount === 1 ? '' : 's'} ${repeated ? 'asked something similar' : 'asked this'}`
     : feedback || positive
@@ -380,16 +403,34 @@ function InsightDrawer({ action, onClose }: { action: CreatorAction; onClose: ()
   const courseTrustText = action.supportingSignalCount >= 2
     ? 'Multiple learners are asking about the same course guidance.'
     : 'This learner is asking about course guidance rather than expressing difficulty with the lesson itself.';
+  const interpretationSummary = diagnosis?.possibleLearningGap || action.summary;
+  const interpretationAction = diagnosis?.recommendedAction || action.suggestedAction;
+  const generateInterpretation = async () => {
+    if (!action.concept || generatingDiagnosis) return;
+    setGeneratingDiagnosis(true); setDiagnosisError(null);
+    try {
+      const result = await generateConceptDiagnosis(videoId, action.concept);
+      if (!result.eligible || !result.interpretation) throw new Error(result.message || 'AI interpretation is not available for this evidence yet.');
+      setDiagnosis(result.interpretation);
+      setDiagnosisEligible(true);
+    } catch (error) {
+      setDiagnosisError(error instanceof Error ? error.message : 'AI interpretation is temporarily unavailable.');
+    } finally {
+      setGeneratingDiagnosis(false);
+    }
+  };
   return <><button className="insight-drawer-backdrop" aria-label="Close insight details" onClick={onClose} /><aside className={`insight-drawer ${feedback ? 'drawer-feedback' : positive ? 'drawer-positive' : ''}`} role="dialog" aria-modal="true" aria-label={`${displayActionTitle(action)} details`}>
     <button type="button" className="drawer-close" onClick={onClose} aria-label="Close insight details"><LearnTraceIcon name="close" size={20} /></button>
     <span className={`insight-kind drawer-status ${hasInterpretation ? 'status-strong' : repeated ? 'status-repeated' : ''}`}>{hasInterpretation && <LearnTraceIcon name="flame" size={15} />}{repeated && !hasInterpretation && <LearnTraceIcon name="messages" size={15} />}{status}</span><h3>{displayActionTitle(action)}</h3>
     {hasInterpretation && action.learningFrictionStatus && <span className="difficulty-pill">{action.learningFrictionStatus} learning difficulty</span>}
     <p className="drawer-count">{countText}</p>
-    {learning && learnerQuestion && <section className="drawer-section"><DrawerHeading icon="comment">{action.supportingSignalCount === 1 ? 'What the learner asked' : 'What learners are asking'}</DrawerHeading><p className="drawer-question">{learnerQuestion}</p><button type="button" className="drawer-comments-toggle" onClick={() => setShowComments((visible) => !visible)} aria-expanded={showComments}>{showComments ? 'Hide comments' : 'See supporting comments'} →</button>{showComments && <ul className="evidence-list drawer-evidence">{action.evidence.map((item) => <li key={item.commentId}>{item.isReply && item.parentCommentText && <><span className="reply-context"><LearnTraceIcon name="reply" size={14} /> Reply to: {item.parentCommentText}</span></>}{item.commentText}</li>)}</ul>}</section>}
+    {learning && learnerQuestion && <section className="drawer-section"><DrawerHeading icon="comment">{action.supportingSignalCount === 1 ? 'What the learner asked' : 'What learners are asking'}</DrawerHeading><p className="drawer-question">{learnerQuestion}</p>{action.supportingSignalCount > 1 && <><button type="button" className="drawer-comments-toggle" onClick={() => setShowComments((visible) => !visible)} aria-expanded={showComments}>{showComments ? 'Hide comments' : 'See supporting comments'} →</button>{showComments && <ul className="evidence-list drawer-evidence">{action.evidence.map((item) => <li key={item.commentId}>{item.isReply && item.parentCommentText && <><span className="reply-context"><LearnTraceIcon name="reply" size={14} /> Reply to: {item.parentCommentText}</span></>}{item.commentText}</li>)}</ul>}</>}</section>}
     {!learning && (displayedAudienceRequest || course) && <section className="drawer-section"><DrawerHeading icon={course ? 'path' : 'comment'}>{course ? 'What the learner wants to know' : action.category === 'content_opportunity' ? 'What learners requested' : 'What learners said'}</DrawerHeading>{displayedAudienceRequest ? <p className="drawer-question">{displayedAudienceRequest}</p> : <p className="drawer-question course-question-fallback">A learner asked about course guidance.</p>}{supportingEvidence.length > 0 && <><button type="button" className="drawer-comments-toggle" onClick={() => setShowComments((visible) => !visible)} aria-expanded={showComments}>{course ? (showComments ? 'Hide original comment' : `See original comment${supportingEvidence.length === 1 ? '' : 's'}`) : (showComments ? 'Hide supporting comments' : `See ${supportingEvidence.length} supporting comment${supportingEvidence.length === 1 ? '' : 's'}`)} →</button>{showComments && <ul className="evidence-list drawer-evidence">{supportingEvidence.map((item) => <li key={item.commentId}>{item.isReply && item.parentCommentText && <><span className="reply-context"><LearnTraceIcon name="reply" size={14} /> Reply to: {item.parentCommentText}</span></>}{item.commentText}</li>)}</ul>}</>}</section>}
-    {hasInterpretation && <section className="drawer-section"><DrawerHeading icon="sparkles">What LearnTrace noticed</DrawerHeading><p>{action.summary}</p></section>}
-    {hasInterpretation && <section className="drawer-section drawer-action"><DrawerHeading icon="content">What you could try</DrawerHeading><p>{action.suggestedAction}</p></section>}
-    {learning && repeated && !hasInterpretation && <section className="drawer-section drawer-watch"><DrawerHeading icon="eye">Worth watching</DrawerHeading><p>{recommendation}</p></section>}
+    {hasInterpretation && <section className="drawer-section"><DrawerHeading icon="sparkles">What LearnTrace noticed</DrawerHeading><p>{interpretationSummary}</p></section>}
+    {hasInterpretation && <section className="drawer-section drawer-action"><DrawerHeading icon="content">What you could try</DrawerHeading><p>{interpretationAction}</p></section>}
+    {learning && diagnosisChecked && diagnosisEligible && !hasInterpretation && <section className="drawer-section drawer-diagnosis"><DrawerHeading icon="sparkles">AI interpretation available</DrawerHeading><p>There is enough recurring evidence for LearnTrace to interpret this learner difficulty.</p><button type="button" className="drawer-generate-button" disabled={generatingDiagnosis} onClick={() => void generateInterpretation()}>{generatingDiagnosis ? 'Generating interpretation…' : 'Generate AI interpretation'}</button>{diagnosisError && <p className="drawer-diagnosis-error">{diagnosisError}</p>}</section>}
+    {learning && diagnosisChecked && !diagnosisEligible && !hasInterpretation && <section className="drawer-section drawer-watch"><DrawerHeading icon="eye">Worth watching</DrawerHeading><p>{diagnosisMessage || 'More recurring evidence is needed before LearnTrace can generate an AI interpretation.'}</p></section>}
+    {learning && repeated && !hasInterpretation && !diagnosisChecked && <section className="drawer-section drawer-watch"><DrawerHeading icon="eye">Worth watching</DrawerHeading><p>{recommendation}</p></section>}
     {positive && <section className="drawer-section drawer-positive-meaning"><DrawerHeading icon="positive">Why this matters</DrawerHeading><p>{action.isGeneralPositive ? 'Learners praised the teaching overall but did not name a particular teaching approach.' : `Learners specifically responded positively to ${displayActionTitle(action).toLocaleLowerCase()}.`}</p></section>}
     {!learning && <section className="drawer-section drawer-action"><DrawerHeading icon={positive ? 'positive' : feedback ? 'content' : course ? 'path' : 'content'}>{positive ? action.isGeneralPositive ? 'What this means' : 'Keep doing this' : course ? 'What you could clarify' : 'What you could try'}</DrawerHeading><p>{action.suggestedAction}</p></section>}
     <details className="drawer-trust"><summary><LearnTraceIcon name="info" size={16} /> Why this is showing</summary><p>{course ? courseTrustText : trustText}</p></details>

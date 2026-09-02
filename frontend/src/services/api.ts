@@ -1,4 +1,4 @@
-import { AnalyzeVideoResponse, ConceptClustersResponse, CreatorActionsResponse, DiagnosisResponse, FrictionResponse, LearningSignalResponse, VideoStats } from '../types';
+import { AnalyzeVideoResponse, ConceptClustersResponse, CreatorActionsResponse, DiagnosisResponse, FrictionResponse, LearningSignalResponse, ResponseDraftResponse, ResponseWorkflowResponse, VideoStats } from '../types';
 
 const API_BASE_URL = 'http://localhost:3001/api';
 
@@ -113,4 +113,17 @@ export async function getCreatorActions(videoId: string): Promise<CreatorActions
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || 'Could not load creator actions.');
   return data as CreatorActionsResponse;
+}
+
+export async function getResponseWorkflow(videoId: string): Promise<ResponseWorkflowResponse> {
+  const response = await fetch(`${API_BASE_URL}/analyze/video/${encodeURIComponent(videoId)}/response-workflow`);
+  const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Could not load response workflow.'); return data;
+}
+export async function setResponseWorkflowResolution(videoId: string, workflowId: string, resolved: boolean): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/analyze/video/${encodeURIComponent(videoId)}/response-workflow/${encodeURIComponent(workflowId)}/resolution`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ resolved }) });
+  const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Could not update response workflow.');
+}
+export async function generateResponseDraft(videoId: string, workflowId: string, regenerate = false): Promise<ResponseDraftResponse> {
+  const response = await fetch(`${API_BASE_URL}/analyze/video/${encodeURIComponent(videoId)}/response-workflow/${encodeURIComponent(workflowId)}/draft`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ regenerate }) });
+  const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Could not draft a reply.'); return data;
 }

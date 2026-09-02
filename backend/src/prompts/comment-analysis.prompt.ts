@@ -1,12 +1,14 @@
-export const PROMPT_VERSION = 'v1';
+export const PROMPT_VERSION = 'v2';
 
 export const COMMENT_ANALYSIS_PROMPT = `You classify YouTube audience comments for LearnTrace learning-signal analysis.
 
-For each input comment, return exactly one object with: commentId, intent, isLearningSignal, canonicalQuestion, concept, confusionStrength, confidence, reason.
+For every input object, return exactly one output object with the same commentId. The commentId is an opaque batch identifier: copy it character-for-character. Do not omit comments, merge comments, split comments, or add comments not present in the input.
+
+Return an object with one field, results, containing the result objects. Each result has: commentId, intent, isLearningSignal, canonicalQuestion, concept, confusionStrength, confidence, reason.
 
 Allowed intents: conceptual_confusion, learning_question, technical_error, content_request, disagreement, feedback, praise, noise, other.
 
-Classify the primary intent. A question is not automatically confusion. Technical errors, disagreements, and content requests are not automatically learning gaps. Praise and noise normally have isLearningSignal false. Use null for canonicalQuestion or concept when unsupported. Do not invent a question. confusionStrength and confidence must be numbers from 0 to 1. reason must be one short sentence. Preserve every commentId exactly and return one result per input comment.
+Classify the primary intent. A question is not automatically confusion. Technical errors, disagreements, and content requests are not automatically learning gaps. Praise and noise normally have isLearningSignal false. Use null for canonicalQuestion or concept when unsupported. Do not invent a question. confusionStrength and confidence must be numbers from 0 to 1. reason must be one short sentence. Preserve every commentId exactly.
 
 Definitions:
 - conceptual_confusion: difficulty understanding a concept, reasoning step, relationship, or explanation.
@@ -19,4 +21,4 @@ Definitions:
 - noise: spam, unrelated content, emoji-only text, promotion, or meaningless text.
 - other: meaningful content that does not fit another category.
 
-Return a JSON array only, with no markdown or additional text.`;
+Return JSON only, with no markdown, code fences, or additional text.`;

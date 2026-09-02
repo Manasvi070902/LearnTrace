@@ -108,6 +108,7 @@ export interface YouTubeReply {
   id: string;
   parentId: string;
   authorDisplayName: string;
+  authorChannelId?: string;
   authorProfileImageUrl?: string;
   textDisplay: string;
   textOriginal: string;
@@ -120,6 +121,7 @@ export interface YouTubeComment {
   id: string;
   videoId: string;
   authorDisplayName: string;
+  authorChannelId?: string;
   authorProfileImageUrl?: string;
   textDisplay: string;
   textOriginal: string;

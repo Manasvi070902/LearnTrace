@@ -22,37 +22,111 @@ export interface CommentAnalysis {
   reason: string;
 }
 
+export class GeminiBatchValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'GeminiBatchValidationError';
+  }
+}
+
+export const COMMENT_ANALYSIS_RESPONSE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['results'],
+  properties: {
+    results: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['commentId', 'intent', 'isLearningSignal', 'canonicalQuestion', 'concept', 'confusionStrength', 'confidence', 'reason'],
+        properties: {
+          commentId: { type: 'string' },
+          intent: { type: 'string', enum: [...INTENTS] },
+          isLearningSignal: { type: 'boolean' },
+          canonicalQuestion: { type: ['string', 'null'] },
+          concept: { type: ['string', 'null'] },
+          confusionStrength: { type: 'number', minimum: 0, maximum: 1 },
+          confidence: { type: 'number', minimum: 0, maximum: 1 },
+          reason: { type: 'string' },
+        },
+      },
+    },
+  },
+} as const;
+
 export function validateCommentAnalysis(value: unknown): CommentAnalysis {
-  if (!value || typeof value !== 'object') throw new Error('Gemini response item is not an object.');
+  if (!value || typeof value !== 'object') throw new GeminiBatchValidationError('Gemini response item is not an object.');
   const item = value as Record<string, unknown>;
-  if (typeof item.commentId !== 'string' || !item.commentId) throw new Error('Missing commentId.');
-  if (typeof item.intent !== 'string' || !(INTENTS as readonly string[]).includes(item.intent)) throw new Error(`Invalid intent for ${item.commentId}.`);
-  if (typeof item.isLearningSignal !== 'boolean') throw new Error(`Invalid isLearningSignal for ${item.commentId}.`);
-  if (item.canonicalQuestion !== null && typeof item.canonicalQuestion !== 'string') throw new Error(`Invalid canonicalQuestion for ${item.commentId}.`);
-  if (item.concept !== null && typeof item.concept !== 'string') throw new Error(`Invalid concept for ${item.commentId}.`);
+  if (typeof item.commentId !== 'string' || !item.commentId) throw new GeminiBatchValidationError('Missing commentId.');
+  if (typeof item.intent !== 'string' || !(INTENTS as readonly string[]).includes(item.intent)) throw new GeminiBatchValidationError(`Invalid intent for ${item.commentId}.`);
+  if (typeof item.isLearningSignal !== 'boolean') throw new GeminiBatchValidationError(`Invalid isLearningSignal for ${item.commentId}.`);
+  if (item.canonicalQuestion !== null && typeof item.canonicalQuestion !== 'string') throw new GeminiBatchValidationError(`Invalid canonicalQuestion for ${item.commentId}.`);
+  if (item.concept !== null && typeof item.concept !== 'string') throw new GeminiBatchValidationError(`Invalid concept for ${item.commentId}.`);
   for (const field of ['confusionStrength', 'confidence']) {
     if (typeof item[field] !== 'number' || !Number.isFinite(item[field]) || item[field] < 0 || item[field] > 1) {
-      throw new Error(`Invalid ${field} for ${item.commentId}.`);
+      throw new GeminiBatchValidationError(`Invalid ${field} for ${item.commentId}.`);
     }
   }
-  if (typeof item.reason !== 'string' || !item.reason) throw new Error(`Missing reason for ${item.commentId}.`);
+  if (typeof item.reason !== 'string' || !item.reason) throw new GeminiBatchValidationError(`Missing reason for ${item.commentId}.`);
   return item as unknown as CommentAnalysis;
 }
 
 export function parseGeminiResponse(text: string): CommentAnalysis[] {
   const cleaned = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
   let parsed: unknown;
-  try { parsed = JSON.parse(cleaned); } catch { throw new Error('Gemini returned malformed JSON.'); }
-  if (!Array.isArray(parsed)) throw new Error('Gemini response must be an array.');
-  return parsed.map(validateCommentAnalysis);
+  try { parsed = JSON.parse(cleaned); } catch { throw new GeminiBatchValidationError('Gemini returned malformed JSON.'); }
+  // Accept the previous array envelope for a safe provider-format transition,
+  // while structured output requests the object envelope below.
+  const results = Array.isArray(parsed)
+    ? parsed
+    : parsed && typeof parsed === 'object' && Array.isArray((parsed as { results?: unknown }).results)
+      ? (parsed as { results: unknown[] }).results
+      : null;
+  if (!results) throw new GeminiBatchValidationError('Gemini response must contain a results array.');
+  return results.map(validateCommentAnalysis);
 }
 
 export function mapBatchResults(input: CommentForAnalysis[], results: CommentAnalysis[]): CommentAnalysis[] {
-  const expected = new Set(input.map((comment) => comment.commentId));
-  if (results.length !== input.length || results.some((result) => !expected.has(result.commentId)) || new Set(results.map((result) => result.commentId)).size !== results.length) {
-    throw new Error('Gemini response did not contain exactly one result for every comment.');
+  const expectedIds = input.map((comment) => comment.commentId);
+  const expected = new Set(expectedIds);
+  const responseIds = results.map((result) => result.commentId);
+  const responseCounts = new Map<string, number>();
+  for (const id of responseIds) responseCounts.set(id, (responseCounts.get(id) || 0) + 1);
+  const missingIds = expectedIds.filter((id) => !responseCounts.has(id));
+  const duplicateIds = [...responseCounts.entries()].filter(([, count]) => count > 1).map(([id]) => id);
+  const unknownIds = responseIds.filter((id) => !expected.has(id));
+  const duplicateInputIds = expectedIds.filter((id, index) => expectedIds.indexOf(id) !== index);
+  if (results.length !== input.length || missingIds.length || duplicateIds.length || unknownIds.length || duplicateInputIds.length) {
+    throw new GeminiBatchValidationError(`Gemini batch validation failed. Expected: ${input.length}. Received: ${results.length}. Missing IDs: [${missingIds.join(', ')}]. Duplicate IDs: [${duplicateIds.join(', ')}]. Unknown IDs: [${unknownIds.join(', ')}].${duplicateInputIds.length ? ` Duplicate input IDs: [${duplicateInputIds.join(', ')}].` : ''}`);
   }
-  return input.map((comment) => results.find((result) => result.commentId === comment.commentId)!);
+  const byCommentId = new Map(results.map((result) => [result.commentId, result]));
+  return input.map((comment) => byCommentId.get(comment.commentId)!);
+}
+
+/**
+ * YouTube comment IDs are long opaque strings which a model can subtly alter
+ * while reproducing them. Send a short deterministic batch token instead and
+ * resolve it back to the original database identifier only after strict
+ * one-to-one validation succeeds.
+ */
+export function createProviderBatch(comments: CommentForAnalysis[]): {
+  providerComments: CommentForAnalysis[];
+  mapToSourceComments: (results: CommentAnalysis[]) => CommentAnalysis[];
+} {
+  const providerComments = comments.map((comment, index) => ({
+    commentId: `item_${String(index + 1).padStart(3, '0')}`,
+    text: comment.text,
+  }));
+  const sourceCommentIdByProviderId = new Map(providerComments.map((providerComment, index) => [providerComment.commentId, comments[index].commentId]));
+
+  return {
+    providerComments,
+    mapToSourceComments: (results) => mapBatchResults(providerComments, results).map((result) => ({
+      ...result,
+      commentId: sourceCommentIdByProviderId.get(result.commentId)!,
+    })),
+  };
 }
 
 export function splitIntoBatches<T>(items: T[], batchSize = GEMINI_BATCH_SIZE): T[][] {
@@ -105,21 +179,56 @@ function retryDelayMs(error: unknown): number {
   return Math.min(10_000, match ? Math.max(250, Number(match[1]) * 1000) : 1000);
 }
 
-async function analyzeBatch(comments: CommentForAnalysis[], beforeRequest?: () => Promise<void>): Promise<CommentAnalysis[]> {
-  const { GoogleGenAI } = await import('@google/genai');
-  const ai = new GoogleGenAI({ apiKey: getRequiredApiKey() });
-  const contents = `${COMMENT_ANALYSIS_PROMPT}\n\nComments:\n${JSON.stringify(comments)}`;
+export interface GeminiBatchDiagnostics { videoId?: string; }
+export type GeminiBatchRequester = (contents: string) => Promise<string>;
+
+function logBatchValidation(videoId: string | undefined, batchSize: number, error: GeminiBatchValidationError): void {
+  console.warn(`[Learning Signals] Gemini batch validation failed video_id='${videoId || 'unknown'}' batch_size=${batchSize}. ${error.message}`);
+}
+
+export async function analyzeBatch(
+  comments: CommentForAnalysis[],
+  beforeRequest?: () => Promise<void>,
+  diagnostics?: GeminiBatchDiagnostics,
+  requester?: GeminiBatchRequester,
+): Promise<CommentAnalysis[]> {
+  const providerBatch = createProviderBatch(comments);
+  const contents = `${COMMENT_ANALYSIS_PROMPT}\n\nComments:\n${JSON.stringify(providerBatch.providerComments)}`;
   let transientRateLimitRetried = false;
+  let validationRetried = false;
   for (;;) {
     try {
       if (beforeRequest) await beforeRequest();
-      const response = await ai.models.generateContent({
-        model: getConfiguredGeminiModel(),
-        contents,
-        config: { responseMimeType: 'application/json', temperature: 0 },
-      });
-      return parseGeminiResponse(response.text || '');
+      let responseText: string;
+      if (requester) {
+        responseText = await requester(contents);
+      } else {
+        const { GoogleGenAI } = await import('@google/genai');
+        const ai = new GoogleGenAI({ apiKey: getRequiredApiKey() });
+        const response = await ai.models.generateContent({
+          model: getConfiguredGeminiModel(),
+          contents,
+          config: {
+            responseMimeType: 'application/json',
+            responseJsonSchema: COMMENT_ANALYSIS_RESPONSE_SCHEMA,
+            temperature: 0,
+          },
+        });
+        responseText = response.text || '';
+      }
+      const mappedResults = providerBatch.mapToSourceComments(parseGeminiResponse(responseText));
+      console.info(`[Learning Signals] Gemini batch validated video_id='${diagnostics?.videoId || 'unknown'}' batch_size=${comments.length} expected=${comments.length} received=${mappedResults.length} missing=0 duplicates=0`);
+      return mappedResults;
     } catch (error) {
+      if (error instanceof GeminiBatchValidationError) {
+        logBatchValidation(diagnostics?.videoId, comments.length, error);
+        if (!validationRetried) {
+          validationRetried = true;
+          console.warn(`[Learning Signals] Retrying the same Gemini batch once after validation failure video_id='${diagnostics?.videoId || 'unknown'}' batch_size=${comments.length}.`);
+          continue;
+        }
+        throw new GeminiBatchValidationError(`Gemini batch validation failed after one retry. ${error.message}`);
+      }
       if (isQuotaOrBillingError(error)) {
         throw new Error('Gemini analysis is unavailable because the configured project has exhausted its API quota or billing credits.');
       }
@@ -133,14 +242,19 @@ async function analyzeBatch(comments: CommentForAnalysis[], beforeRequest?: () =
   }
 }
 
-export async function analyzeComments(comments: CommentForAnalysis[], beforeRequest?: () => Promise<void>, onBatchComplete?: (results: CommentAnalysis[]) => Promise<void>): Promise<CommentAnalysis[]> {
+export async function analyzeComments(
+  comments: CommentForAnalysis[],
+  beforeRequest?: () => Promise<void>,
+  onBatchComplete?: (results: CommentAnalysis[]) => Promise<void>,
+  diagnostics?: GeminiBatchDiagnostics,
+  requester?: GeminiBatchRequester,
+): Promise<CommentAnalysis[]> {
   const batchSize = Math.max(1, Number(process.env.GEMINI_BATCH_SIZE || GEMINI_BATCH_SIZE));
   const results: CommentAnalysis[] = [];
   for (const batch of splitCommentBatches(comments, batchSize)) {
-    const batchResults = await analyzeBatch(batch, beforeRequest);
-    const mappedResults = mapBatchResults(batch, batchResults);
-    if (onBatchComplete) await onBatchComplete(mappedResults);
-    results.push(...mappedResults);
+    const batchResults = await analyzeBatch(batch, beforeRequest, diagnostics, requester);
+    if (onBatchComplete) await onBatchComplete(batchResults);
+    results.push(...batchResults);
   }
   return results;
 }
