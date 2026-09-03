@@ -155,6 +155,19 @@ export const RESPONSE_DRAFTS_TABLE_SCHEMA: TableField[] = [
   { name: 'created_at', type: 'TIMESTAMP', mode: 'REQUIRED' },
 ];
 
+/** Cached, evidence-scoped checks of whether a creator reply answers a learner need. */
+export const RESPONSE_REPLY_ASSESSMENTS_TABLE_SCHEMA: TableField[] = [
+  { name: 'workflow_id', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'video_id', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'context_version', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'outcome', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'confidence', type: 'FLOAT64', mode: 'REQUIRED' },
+  { name: 'reason', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'model_name', type: 'STRING', mode: 'REQUIRED' },
+  { name: 'created_at', type: 'TIMESTAMP', mode: 'REQUIRED' },
+];
+
+
 export const TABLE_NAMES = {
   VIDEOS: 'videos',
   COMMENTS: 'comments',
@@ -167,4 +180,5 @@ export const TABLE_NAMES = {
   CONCEPT_DIAGNOSIS: 'concept_diagnosis',
   RESPONSE_WORKFLOW: 'response_workflow',
   RESPONSE_DRAFTS: 'response_drafts',
+  RESPONSE_REPLY_ASSESSMENTS: 'response_reply_assessments',
 } as const;

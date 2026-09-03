@@ -17,8 +17,8 @@ import { getCachedDiagnosis, storeDiagnosis } from '../services/bigquery/bigquer
 import { buildCreatorActions } from '../services/creator-actions/creator-actions.service';
 import { PROMPT_VERSION } from '../prompts/comment-analysis.prompt';
 import { getConfiguredGeminiModel } from '../services/gemini/comment-analysis.service';
-import { buildCreatorReplyContexts, buildResponseWorkflowItems, buildDraftPrompt, draftContextFingerprint, newDraftId, RESPONSE_CONTEXT_VERSION, ResponseWorkflowItem, validateDraft } from '../services/response-workflow/response-workflow.service';
-import { getCachedDraftContextKeys, getCachedResponseDraft, getResponseDraftUsageToday, getWorkflowStates, setWorkflowResolution, storeResponseDraft, upsertWorkflowItems } from '../services/bigquery/bigquery.response-workflow';
+import { buildCreatorReplyAssessmentPrompt, buildCreatorReplyContexts, buildResponseWorkflowItems, buildDraftPrompt, creatorReplyAssessmentFingerprint, draftContextFingerprint, newDraftId, RESPONSE_CONTEXT_VERSION, ResponseDraftMode, ResponseWorkflowItem, validateCreatorReplyAssessment, validateDraft } from '../services/response-workflow/response-workflow.service';
+import { getCachedCreatorReplyAssessment, getCachedDraftContextKeys, getCachedResponseDraft, getCreatorReplyAssessmentUsageToday, getResponseDraftUsageToday, getWorkflowStates, markWorkflowCreatorReplyAnswered, setWorkflowResolution, storeCreatorReplyAssessment, storeResponseDraft, upsertWorkflowItems } from '../services/bigquery/bigquery.response-workflow';
 import { getDailyAnalysisUsage } from '../services/bigquery/bigquery.analysis';
 
 const router = Router();
@@ -38,22 +38,55 @@ async function getWorkflowItems(videoId: string): Promise<ResponseWorkflowItem[]
         ? commentsById.get(commentsById.get(item.comment_id)!.parent_comment_id!)?.comment_text || null : null,
     })),
   })));
+  const diagnoses = new Map();
+  for (const score of frictionScores || []) {
+    const concept = score.normalized_concept;
+    const conceptClusters = clusters.filter((cluster) => normalizeConcept(cluster.primary_concept) === concept);
+    if (!isInterpretationEligible(score, conceptClusters)) continue;
+    const packet = buildEvidencePacket(videoId, concept, score, conceptClusters);
+    const cached = await getCachedDiagnosis(videoId, concept, getConfiguredDiagnosisModel(), fingerprintEvidence(packet));
+    if (cached) diagnoses.set(concept, cached);
+  }
   const actions = buildCreatorActions(analyses.map((analysis) => {
     const source = commentsById.get(analysis.comment_id);
     return { ...analysis, comment_text: source?.comment_text || '', is_reply: source?.is_reply || false,
       parent_comment_text: source?.parent_comment_id ? commentsById.get(source.parent_comment_id)?.comment_text || null : null };
-  }), clusters, frictionScores || [], new Map());
+  }), clusters, frictionScores || [], diagnoses);
   return buildResponseWorkflowItems(videoId, actions.creatorActions, comments, creatorChannelId);
 }
 
-async function generateResponseDraft(item: ResponseWorkflowItem): Promise<{ text: string; model: string }> {
+async function generateResponseDraft(item: ResponseWorkflowItem, mode: ResponseDraftMode): Promise<{ text: string; model: string }> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('GEMINI_API_KEY is not configured on the server.');
   const model = process.env.GEMINI_RESPONSE_MODEL?.trim() || getConfiguredDiagnosisModel();
   const { GoogleGenAI } = await import('@google/genai');
   const ai = new GoogleGenAI({ apiKey });
-  const response = await ai.models.generateContent({ model, contents: buildDraftPrompt(item), config: { temperature: 0.3 } });
+  const response = await ai.models.generateContent({ model, contents: buildDraftPrompt(item, mode, item.phase6Interpretation), config: { temperature: 0.3 } });
   return { text: validateDraft(response.text || ''), model };
+}
+
+function parseJsonResponse(text: string, description: string): unknown {
+  try { return JSON.parse(text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')); }
+  catch { throw new Error(`Gemini returned malformed ${description} JSON.`); }
+}
+
+async function assessCreatorReply(item: ResponseWorkflowItem): Promise<{ outcome: 'answered' | 'partial' | 'not_answered'; confidence: number; reason: string; model: string }> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('GEMINI_API_KEY is not configured on the server.');
+  if (!item.creatorReplyText?.trim()) throw new Error('No creator reply is available to assess.');
+  const model = process.env.GEMINI_RESPONSE_MODEL?.trim() || getConfiguredDiagnosisModel();
+  const { GoogleGenAI } = await import('@google/genai');
+  const ai = new GoogleGenAI({ apiKey });
+  const response = await ai.models.generateContent({ model, contents: buildCreatorReplyAssessmentPrompt(item), config: { responseMimeType: 'application/json', temperature: 0 } });
+  return { ...validateCreatorReplyAssessment(parseJsonResponse(response.text || '', 'reply assessment')), model };
+}
+
+function safeAiError(error: unknown, fallback: string): string {
+  const message = error instanceof Error ? error.message : '';
+  if (/503|unavailable|high demand|temporar/i.test(message)) return 'AI is temporarily busy. Please try again in a minute.';
+  if (/429|resource.?exhausted|rate limit|quota/i.test(message)) return 'The AI request limit has been reached. Please try again later.';
+  if (/api.?key|authentication|permission/i.test(message)) return 'The AI service is not configured correctly.';
+  return fallback;
 }
 
 /**
@@ -344,8 +377,28 @@ router.get('/video/:videoId/response-workflow', async (req: Request, res: Respon
       const state = states.get(item.workflowId);
       return state ? { ...item, resolutionStatus: state.resolution_status, resolutionSource: state.resolution_source, resolvedAt: state.resolved_at, creatorReplyCommentId: state.creator_reply_comment_id || item.creatorReplyCommentId, communityReplyCommentId: state.community_reply_comment_id } : item;
     });
-    const cachedDraftKeys = await getCachedDraftContextKeys(videoId, statefulItems.map((item) => item.workflowId));
-    const items = statefulItems.map((item) => ({ ...item, hasDraft: cachedDraftKeys.has(`${item.workflowId}:${draftContextFingerprint(item)}`) }));
+    const [cachedDraftKeys, replyAssessments] = await Promise.all([
+      getCachedDraftContextKeys(videoId, statefulItems.map((item) => item.workflowId)),
+      Promise.all(statefulItems.map(async (item) => {
+        if (!item.creatorReplyText?.trim()) return [item.workflowId, null] as const;
+        const cached = await getCachedCreatorReplyAssessment(videoId, item.workflowId, creatorReplyAssessmentFingerprint(item));
+        return [item.workflowId, cached] as const;
+      })),
+    ]);
+    const assessmentByWorkflowId = new Map(replyAssessments);
+    const items = statefulItems.map((item) => {
+      const assessment = assessmentByWorkflowId.get(item.workflowId);
+      const modes = [item.primaryDraftMode, item.secondaryDraftMode].filter((mode): mode is ResponseDraftMode => Boolean(mode));
+      return {
+        ...item,
+        hasDraft: cachedDraftKeys.has(`${item.workflowId}:${draftContextFingerprint(item, item.primaryDraftMode, item.phase6Interpretation)}`),
+        cachedDraftModes: modes.filter((mode) => cachedDraftKeys.has(`${item.workflowId}:${draftContextFingerprint(item, mode, item.phase6Interpretation)}`)),
+        creatorReplyAssessment: assessment ? {
+          outcome: assessment.outcome, confidence: assessment.confidence, reason: assessment.reason,
+          model: assessment.model_name, createdAt: assessment.created_at,
+        } : null,
+      };
+    });
     const needsResponse = items.filter((item) => item.resolutionStatus === 'needs_response' || item.resolutionStatus === 'unclear');
     const resolved = items.filter((item) => item.resolutionStatus === 'resolved' || item.resolutionStatus === 'community_answered');
     return res.json({ status: 'success', videoId, needsResponse, resolved, summary: { total: items.length, needsResponse: needsResponse.length, resolved: resolved.length } });
@@ -370,7 +423,11 @@ router.post('/video/:videoId/response-workflow/:workflowId/draft', async (req: R
     const items = await getWorkflowItems(videoId);
     const item = items.find((candidate) => candidate.workflowId === workflowId);
     if (!item) return res.status(404).json({ status: 'error', error: 'Response workflow item was not found.' });
-    const contextVersion = draftContextFingerprint(item);
+    const requestedMode = req.body?.mode;
+    const allowedModes = [item.primaryDraftMode, item.secondaryDraftMode].filter((mode): mode is ResponseDraftMode => Boolean(mode));
+    const mode = requestedMode === undefined ? item.primaryDraftMode : requestedMode as ResponseDraftMode;
+    if (!allowedModes.includes(mode)) return res.status(400).json({ status: 'error', error: 'This draft mode is not available for the selected insight.' });
+    const contextVersion = draftContextFingerprint(item, mode, item.phase6Interpretation);
     const regenerate = req.body?.regenerate === true;
     if (!regenerate) {
       const cached = await getCachedResponseDraft(videoId, workflowId, contextVersion);
@@ -379,11 +436,38 @@ router.post('/video/:videoId/response-workflow/:workflowId/draft', async (req: R
     const [usage, draftUsage] = await Promise.all([getDailyAnalysisUsage(), getResponseDraftUsageToday()]);
     const limit = Number(process.env.GEMINI_MAX_REQUESTS_PER_DAY || 10);
     if (usage.requestsToday + draftUsage >= limit) return res.status(429).json({ status: 'error', error: 'The configured daily AI request limit has been reached.' });
-    const generated = await generateResponseDraft(item);
+    const generated = await generateResponseDraft(item, mode);
     const draft = { draft_id: newDraftId(), workflow_id: workflowId, video_id: videoId, context_version: contextVersion, draft_text: generated.text, model_name: generated.model, created_at: new Date().toISOString() };
     await storeResponseDraft(draft);
     return res.json({ status: 'success', cached: false, draft });
-  } catch (error) { return res.status(503).json({ status: 'error', error: error instanceof Error ? error.message : 'A reply draft is temporarily unavailable.' }); }
+  } catch (error) { return res.status(503).json({ status: 'error', error: safeAiError(error, 'A reply draft is temporarily unavailable.') }); }
 });
+
+/** Explicitly checks a detected creator reply; results are cached against its exact context. */
+router.post('/video/:videoId/response-workflow/:workflowId/creator-reply-check', async (req: Request, res: Response) => {
+  try {
+    const videoId = String(req.params.videoId); const workflowId = String(req.params.workflowId);
+    const items = await getWorkflowItems(videoId);
+    const item = items.find((candidate) => candidate.workflowId === workflowId);
+    if (!item) return res.status(404).json({ status: 'error', error: 'Response workflow item was not found.' });
+    if (!item.creatorReplyText?.trim()) return res.status(400).json({ status: 'error', error: 'No creator reply is available to assess.' });
+    const contextVersion = creatorReplyAssessmentFingerprint(item);
+    const cached = await getCachedCreatorReplyAssessment(videoId, workflowId, contextVersion);
+    if (cached) return res.json({ status: 'success', cached: true, assessment: cached });
+    const [usage, draftUsage, checkUsage] = await Promise.all([getDailyAnalysisUsage(), getResponseDraftUsageToday(), getCreatorReplyAssessmentUsageToday()]);
+    const limit = Number(process.env.GEMINI_MAX_REQUESTS_PER_DAY || 10);
+    if (usage.requestsToday + draftUsage + checkUsage >= limit) return res.status(429).json({ status: 'error', error: 'The configured daily AI request limit has been reached.' });
+    const assessment = await assessCreatorReply(item);
+    const stored = { workflow_id: workflowId, video_id: videoId, context_version: contextVersion, outcome: assessment.outcome, confidence: assessment.confidence, reason: assessment.reason, model_name: assessment.model, created_at: new Date().toISOString() };
+    await storeCreatorReplyAssessment(stored);
+    if (assessment.outcome === 'answered' && assessment.confidence >= 0.8) await markWorkflowCreatorReplyAnswered(videoId, workflowId);
+    return res.json({ status: 'success', cached: false, assessment: stored, resolved: assessment.outcome === 'answered' && assessment.confidence >= 0.8 });
+  } catch (error) { return res.status(503).json({ status: 'error', error: safeAiError(error, 'Creator-reply review is temporarily unavailable.') }); }
+});
+
+/**
+ * Explicitly checks a detected creator reply. The result is cached against the
+ * exact learner need and reply text, so reopening an insight never reuses Gemini.
+ */
 
 export default router;

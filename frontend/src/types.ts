@@ -254,6 +254,7 @@ export interface CreatorActionsResponse {
 export interface CreatorReplyContext { sourceInsightId: string; commentId: string; text: string; authorName: string | null; avatarUrl: string | null; }
 
 export type ResponseWorkflowStatus = 'needs_response' | 'resolved' | 'community_answered' | 'unclear';
+export type ResponseDraftMode = 'individual_reply' | 'public_clarification' | 'technical_fix' | 'learning_path_guidance' | 'request_acknowledgement' | 'feedback_acknowledgement';
 export interface ResponseWorkflowEvidence { comment_id: string; parent_comment_id: string | null; comment_text: string; is_reply: boolean; published_at?: string; }
 export interface ResponseWorkflowItem {
   workflowId: string; videoId: string; sourceCategory: CreatorActionCategory; sourceInsightId: string;
@@ -261,10 +262,16 @@ export interface ResponseWorkflowItem {
   resolutionStatus: ResponseWorkflowStatus; resolutionSource: string | null; resolvedAt: string | null;
   suggestedResponseType: string; evidence: ResponseWorkflowEvidence[];
   hasDraft?: boolean;
+  cachedDraftModes?: ResponseDraftMode[];
+  primaryDraftMode: ResponseDraftMode;
+  secondaryDraftMode: ResponseDraftMode | null;
+  hasPhase6Interpretation: boolean;
   creatorReplyText?: string | null;
   creatorReplyAuthorName?: string | null;
   creatorReplyAvatarUrl?: string | null;
+  creatorReplyAssessment?: { outcome: 'answered' | 'partial' | 'not_answered'; confidence: number; reason: string; model: string; createdAt: string } | null;
   communityReplyText?: string | null;
 }
 export interface ResponseWorkflowResponse { status: 'success' | 'error'; videoId?: string; needsResponse?: ResponseWorkflowItem[]; resolved?: ResponseWorkflowItem[]; summary?: { total: number; needsResponse: number; resolved: number }; error?: string; }
 export interface ResponseDraftResponse { status: 'success' | 'error'; cached?: boolean; draft?: { draft_id: string; draft_text: string; created_at: string }; error?: string; }
+export interface CreatorReplyAssessmentResponse { status: 'success' | 'error'; cached?: boolean; resolved?: boolean; assessment?: { outcome: 'answered' | 'partial' | 'not_answered'; confidence: number; reason: string; model_name: string; created_at: string }; error?: string; }

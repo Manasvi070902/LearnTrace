@@ -13,7 +13,7 @@ export function ResponseWorkflowView({ videoId }: { videoId: string }) {
   useEffect(() => { setOpen(false); setSelected(null); setDraft(''); setError(null); void load(); }, [videoId]);
   const items = tab === 'needs' ? data?.needsResponse || [] : data?.resolved || [];
   const choose = (item: ResponseWorkflowItem) => { setSelected(item); setDraft(''); setError(null); };
-  const createDraft = async (regenerate = false) => { if (!selected) return; setWorking(true); setError(null); try { const result = await generateResponseDraft(videoId, selected.workflowId, regenerate); setDraft(result.draft?.draft_text || ''); } catch (err) { setError(err instanceof Error ? err.message : 'Could not create draft.'); } finally { setWorking(false); } };
+  const createDraft = async (regenerate = false) => { if (!selected) return; setWorking(true); setError(null); try { const result = await generateResponseDraft(videoId, selected.workflowId, selected.primaryDraftMode, regenerate); setDraft(result.draft?.draft_text || ''); } catch (err) { setError(err instanceof Error ? err.message : 'Could not create draft.'); } finally { setWorking(false); } };
   const resolve = async (resolved: boolean) => { if (!selected) return; setWorking(true); try { await setResponseWorkflowResolution(videoId, selected.workflowId, resolved); await load(); setSelected({ ...selected, resolutionStatus: resolved ? 'resolved' : 'needs_response' }); } catch (err) { setError(err instanceof Error ? err.message : 'Could not update status.'); } finally { setWorking(false); } };
   const summary = data?.summary;
   const needsCount = summary?.needsResponse ?? 0;

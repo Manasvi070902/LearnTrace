@@ -1,4 +1,4 @@
-import { AnalyzeVideoResponse, ConceptClustersResponse, CreatorActionsResponse, DiagnosisResponse, FrictionResponse, LearningSignalResponse, ResponseDraftResponse, ResponseWorkflowResponse, VideoStats } from '../types';
+import { AnalyzeVideoResponse, ConceptClustersResponse, CreatorActionsResponse, CreatorReplyAssessmentResponse, DiagnosisResponse, FrictionResponse, LearningSignalResponse, ResponseDraftMode, ResponseDraftResponse, ResponseWorkflowResponse, VideoStats } from '../types';
 
 const API_BASE_URL = 'http://localhost:3001/api';
 
@@ -123,7 +123,11 @@ export async function setResponseWorkflowResolution(videoId: string, workflowId:
   const response = await fetch(`${API_BASE_URL}/analyze/video/${encodeURIComponent(videoId)}/response-workflow/${encodeURIComponent(workflowId)}/resolution`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ resolved }) });
   const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Could not update response workflow.');
 }
-export async function generateResponseDraft(videoId: string, workflowId: string, regenerate = false): Promise<ResponseDraftResponse> {
-  const response = await fetch(`${API_BASE_URL}/analyze/video/${encodeURIComponent(videoId)}/response-workflow/${encodeURIComponent(workflowId)}/draft`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ regenerate }) });
+export async function generateResponseDraft(videoId: string, workflowId: string, mode: ResponseDraftMode, regenerate = false): Promise<ResponseDraftResponse> {
+  const response = await fetch(`${API_BASE_URL}/analyze/video/${encodeURIComponent(videoId)}/response-workflow/${encodeURIComponent(workflowId)}/draft`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode, regenerate }) });
   const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Could not draft a reply.'); return data;
+}
+export async function assessCreatorReply(videoId: string, workflowId: string): Promise<CreatorReplyAssessmentResponse> {
+  const response = await fetch(`${API_BASE_URL}/analyze/video/${encodeURIComponent(videoId)}/response-workflow/${encodeURIComponent(workflowId)}/creator-reply-check`, { method: 'POST' });
+  const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Creator-reply review is temporarily unavailable.'); return data;
 }

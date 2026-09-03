@@ -1,6 +1,6 @@
 import { getBigQueryClient } from './bigquery.client';
 import { TABLE_NAMES } from './bigquery.schema';
-import { ResponseResolutionSource, ResponseResolutionStatus, ResponseWorkflowItem } from '../response-workflow/response-workflow.service';
+import { CreatorReplyAssessment, ResponseResolutionSource, ResponseResolutionStatus, ResponseWorkflowItem } from '../response-workflow/response-workflow.service';
 
 export interface StoredWorkflowState {
   workflow_id: string;
@@ -13,6 +13,7 @@ export interface StoredWorkflowState {
 }
 
 export interface StoredResponseDraft { draft_id: string; workflow_id: string; video_id: string; context_version: string; draft_text: string; model_name: string; created_at: string; }
+export interface StoredCreatorReplyAssessment { workflow_id: string; video_id: string; context_version: string; outcome: CreatorReplyAssessment['outcome']; confidence: number; reason: string; model_name: string; created_at: string; }
 
 const table = (name: string) => `\`${process.env.GOOGLE_CLOUD_PROJECT_ID}.${process.env.BIGQUERY_DATASET}.${name}\``;
 const options = { location: process.env.BIGQUERY_LOCATION };
@@ -74,6 +75,36 @@ export async function getCachedDraftContextKeys(videoId: string, workflowIds: st
   });
   return new Set((rows || []).map((row: { workflow_id: string; context_version: string }) => `${row.workflow_id}:${row.context_version}`));
 }
+
+export async function getCachedCreatorReplyAssessment(videoId: string, workflowId: string, contextVersion: string): Promise<StoredCreatorReplyAssessment | null> {
+  const [rows] = await getBigQueryClient().query({
+    query: `SELECT workflow_id, video_id, context_version, outcome, confidence, reason, model_name, CAST(created_at AS STRING) AS created_at FROM ${table(TABLE_NAMES.RESPONSE_REPLY_ASSESSMENTS)} WHERE video_id = @video_id AND workflow_id = @workflow_id AND context_version = @context_version ORDER BY created_at DESC LIMIT 1`,
+    params: { video_id: videoId, workflow_id: workflowId, context_version: contextVersion }, ...options,
+  });
+  return (rows?.[0] as StoredCreatorReplyAssessment) || null;
+}
+
+export async function storeCreatorReplyAssessment(assessment: StoredCreatorReplyAssessment): Promise<void> {
+  await getBigQueryClient().query({
+    query: `INSERT INTO ${table(TABLE_NAMES.RESPONSE_REPLY_ASSESSMENTS)} (workflow_id, video_id, context_version, outcome, confidence, reason, model_name, created_at) VALUES (@workflow_id, @video_id, @context_version, @outcome, @confidence, @reason, @model_name, TIMESTAMP(@created_at))`,
+    params: assessment, ...options,
+  });
+}
+
+export async function getCreatorReplyAssessmentUsageToday(): Promise<number> {
+  const [rows] = await getBigQueryClient().query({
+    query: `SELECT COUNT(*) AS requests_today FROM ${table(TABLE_NAMES.RESPONSE_REPLY_ASSESSMENTS)} WHERE created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 DAY)`, ...options,
+  });
+  return Number(rows?.[0]?.requests_today || 0);
+}
+
+export async function markWorkflowCreatorReplyAnswered(videoId: string, workflowId: string): Promise<void> {
+  await getBigQueryClient().query({
+    query: `UPDATE ${table(TABLE_NAMES.RESPONSE_WORKFLOW)} SET resolution_status = 'resolved', resolution_source = 'creator_reply_ai_confirmed', resolved_at = CURRENT_TIMESTAMP(), updated_at = CURRENT_TIMESTAMP() WHERE video_id = @video_id AND workflow_id = @workflow_id`,
+    params: { video_id: videoId, workflow_id: workflowId }, ...options,
+  });
+}
+
 
 export async function storeResponseDraft(draft: StoredResponseDraft): Promise<void> {
   await getBigQueryClient().query({
