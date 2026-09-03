@@ -1,6 +1,6 @@
 import { AnalyzeVideoResponse, ConceptClustersResponse, CreatorActionsResponse, CreatorReplyAssessmentResponse, DiagnosisResponse, FrictionResponse, LearningSignalResponse, ResponseDraftMode, ResponseDraftResponse, ResponseWorkflowResponse, VideoStats } from '../types';
 
-const API_BASE_URL = 'http://localhost:3001/api';
+const API_BASE_URL = '/api';
 
 /**
  * Sends a YouTube URL to the backend for video analysis.
@@ -34,7 +34,7 @@ export async function analyzeVideo(url: string): Promise<AnalyzeVideoResponse> {
       totalCommentsFetched: 0,
       totalRepliesFetched: 0,
       comments: [],
-      error: 'Failed to connect to LearnTrace backend server. Please ensure the backend is running on http://localhost:3001.',
+      error: 'Failed to connect to the LearnTrace backend server. Please ensure the server is running.',
     };
   }
 }

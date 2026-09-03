@@ -30,6 +30,23 @@ app.use('/api/analyze', frictionRouter);
 // Data / Verification Endpoints
 app.use('/api/data', dataRouter);
 
+// Serve the built frontend from the project root in both compiled and ts-node
+// runtimes, without relying on the process working directory.
+const frontendDistPath = path.resolve(__dirname, '../../frontend/dist');
+app.use(express.static(frontendDistPath));
+
+// Let the React app handle client-side routes, while preserving normal API
+// routing and errors for every /api request.
+app.use((req: Request, res: Response, next) => {
+  if (req.method !== 'GET' || req.path === '/api' || req.path.startsWith('/api/')) {
+    return next();
+  }
+
+  res.sendFile(path.join(frontendDistPath, 'index.html'), (err) => {
+    if (err) next(err);
+  });
+});
+
 // ── BigQuery Table Initialization ─────────────────────────────────────────────
 // Runs once on startup. Creates tables if they don't exist yet (idempotent).
 // If BigQuery is unavailable, logs a warning but does NOT crash the server —
@@ -47,6 +64,6 @@ initializeBigQueryTables()
     );
   });
 
-app.listen(PORT, () => {
-  console.log(`[LearnTrace Server] Running on http://localhost:${PORT}`);
+app.listen(Number(PORT), '0.0.0.0', () => {
+  console.log(`[LearnTrace Server] Running on port ${PORT}`);
 });
