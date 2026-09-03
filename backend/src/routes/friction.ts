@@ -17,8 +17,8 @@ import { getCachedDiagnosis, storeDiagnosis } from '../services/bigquery/bigquer
 import { buildCreatorActions } from '../services/creator-actions/creator-actions.service';
 import { PROMPT_VERSION } from '../prompts/comment-analysis.prompt';
 import { getConfiguredGeminiModel } from '../services/gemini/comment-analysis.service';
-import { buildResponseWorkflowItems, buildDraftPrompt, draftContextFingerprint, newDraftId, RESPONSE_CONTEXT_VERSION, ResponseWorkflowItem, validateDraft } from '../services/response-workflow/response-workflow.service';
-import { getCachedResponseDraft, getResponseDraftUsageToday, getWorkflowStates, setWorkflowResolution, storeResponseDraft, upsertWorkflowItems } from '../services/bigquery/bigquery.response-workflow';
+import { buildCreatorReplyContexts, buildResponseWorkflowItems, buildDraftPrompt, draftContextFingerprint, newDraftId, RESPONSE_CONTEXT_VERSION, ResponseWorkflowItem, validateDraft } from '../services/response-workflow/response-workflow.service';
+import { getCachedDraftContextKeys, getCachedResponseDraft, getResponseDraftUsageToday, getWorkflowStates, setWorkflowResolution, storeResponseDraft, upsertWorkflowItems } from '../services/bigquery/bigquery.response-workflow';
 import { getDailyAnalysisUsage } from '../services/bigquery/bigquery.analysis';
 
 const router = Router();
@@ -267,11 +267,12 @@ router.post('/video/:videoId/concepts/:concept/diagnosis', async (req: Request, 
 router.get('/video/:videoId/creator-actions', async (req: Request, res: Response) => {
   try {
     const videoId = String(req.params.videoId);
-    const [analyses, comments, frictionScores, clusterRows] = await Promise.all([
+    const [analyses, comments, frictionScores, clusterRows, creatorChannelId] = await Promise.all([
       getAnalysisForVideo(videoId, PROMPT_VERSION, getConfiguredGeminiModel()),
       getCommentsForVideo(videoId),
       getFrictionAnalysisForVideo(videoId),
       getVideoClusters(videoId, CLUSTERING_VERSION),
+      getVideoChannelId(videoId),
     ]);
     const commentsById = new Map(comments.map((comment) => [comment.comment_id, comment]));
     const clusters = await Promise.all(clusterRows.map(async (cluster) => ({
@@ -318,6 +319,7 @@ router.get('/video/:videoId/creator-actions', async (req: Request, res: Response
       status: 'success',
       videoId,
       ...result,
+      creatorReplies: buildCreatorReplyContexts(result.creatorActions, comments, creatorChannelId),
       // Retained for development/data-quality inspection; the normal creator
       // UI intentionally does not foreground non-actionable noise.
       debug: { commentAccounting: result.audienceOverview },
@@ -338,10 +340,12 @@ router.get('/video/:videoId/response-workflow', async (req: Request, res: Respon
     const computed = await getWorkflowItems(videoId);
     await upsertWorkflowItems(computed);
     const states = new Map((await getWorkflowStates(videoId)).map((state) => [state.workflow_id, state]));
-    const items = computed.map((item) => {
+    const statefulItems = computed.map((item) => {
       const state = states.get(item.workflowId);
-      return state ? { ...item, resolutionStatus: state.resolution_status, resolutionSource: state.resolution_source, resolvedAt: state.resolved_at, creatorReplyCommentId: state.creator_reply_comment_id, communityReplyCommentId: state.community_reply_comment_id } : item;
+      return state ? { ...item, resolutionStatus: state.resolution_status, resolutionSource: state.resolution_source, resolvedAt: state.resolved_at, creatorReplyCommentId: state.creator_reply_comment_id || item.creatorReplyCommentId, communityReplyCommentId: state.community_reply_comment_id } : item;
     });
+    const cachedDraftKeys = await getCachedDraftContextKeys(videoId, statefulItems.map((item) => item.workflowId));
+    const items = statefulItems.map((item) => ({ ...item, hasDraft: cachedDraftKeys.has(`${item.workflowId}:${draftContextFingerprint(item)}`) }));
     const needsResponse = items.filter((item) => item.resolutionStatus === 'needs_response' || item.resolutionStatus === 'unclear');
     const resolved = items.filter((item) => item.resolutionStatus === 'resolved' || item.resolutionStatus === 'community_answered');
     return res.json({ status: 'success', videoId, needsResponse, resolved, summary: { total: items.length, needsResponse: needsResponse.length, resolved: resolved.length } });

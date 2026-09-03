@@ -28,6 +28,7 @@ export const COMMENTS_TABLE_SCHEMA: TableField[] = [
   { name: 'is_reply',          type: 'BOOL',      mode: 'REQUIRED' },
   { name: 'author_channel_id', type: 'STRING',    mode: 'NULLABLE' },
   { name: 'author_name',       type: 'STRING',    mode: 'NULLABLE' },
+  { name: 'author_profile_image_url', type: 'STRING', mode: 'NULLABLE' },
   { name: 'fetched_at',        type: 'TIMESTAMP', mode: 'REQUIRED' },
 ];
 

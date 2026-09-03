@@ -1,8 +1,7 @@
 import { ReactNode, useEffect, useMemo, useRef, useState } from 'react';
-import { generateConceptDiagnosis, getConceptDiagnosis, getCreatorActions } from '../services/api';
-import { AiInterpretation, CreatorAction, CreatorActionsResponse } from '../types';
+import { generateConceptDiagnosis, generateResponseDraft, getConceptDiagnosis, getCreatorActions, getResponseWorkflow, setResponseWorkflowResolution } from '../services/api';
+import { AiInterpretation, CreatorAction, CreatorActionsResponse, CreatorReplyContext, ResponseWorkflowItem } from '../types';
 import { LearnTraceIcon, LearnTraceIconName } from './LearnTraceIcon';
-import { ResponseWorkflowView } from './ResponseWorkflowView';
 
 interface CreatorActionsViewProps { videoId: string; }
 
@@ -89,18 +88,27 @@ export function CreatorActionsView({ videoId }: CreatorActionsViewProps) {
   const [error, setError] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<CategoryKey | null>(null);
   const [openInsight, setOpenInsight] = useState<string | null>(null);
+  const [responseItems, setResponseItems] = useState<ResponseWorkflowItem[]>([]);
+  const [responseFilter, setResponseFilter] = useState<'all' | 'needs'>('all');
   const categoryPanelRef = useRef<HTMLElement>(null);
+  const refreshResponseWorkflow = () => getResponseWorkflow(videoId)
+    .then((result) => setResponseItems([...(result.needsResponse || []), ...(result.resolved || [])]))
+    .catch(() => undefined);
 
   useEffect(() => {
     let active = true;
-    setData(null); setError(null); setSelectedCategory(null); setOpenInsight(null);
+    setData(null); setError(null); setSelectedCategory(null); setOpenInsight(null); setResponseItems([]); setResponseFilter('all');
     void getCreatorActions(videoId)
       .then((result) => { if (active) setData(result); })
       .catch((loadError) => { if (active) setError(loadError instanceof Error ? loadError.message : 'Could not load audience insights.'); });
+    void getResponseWorkflow(videoId).then((result) => { if (active) setResponseItems([...(result.needsResponse || []), ...(result.resolved || [])]); }).catch(() => undefined);
     return () => { active = false; };
   }, [videoId]);
 
   const visibleCategories = useMemo(() => data ? categories.filter((category) => category.count(data) > 0) : [], [data]);
+  const responseByInsight = useMemo(() => new Map(responseItems.map((item) => [item.sourceInsightId, item])), [responseItems]);
+  const creatorRepliesByInsight = useMemo(() => new Map((data?.creatorReplies || []).map((reply) => [reply.sourceInsightId, reply])), [data]);
+  const needsResponse = useMemo(() => responseItems.filter((item) => item.resolutionStatus === 'needs_response' || item.resolutionStatus === 'unclear'), [responseItems]);
   const priorities = useMemo(() => data ? (data.creatorActions || []).filter(isPriority).slice(0, 3) : [], [data]);
   const chooseCategory = (category: CategoryKey, insightId: string | null = null, shouldScroll = true) => {
     if (!insightId && selectedCategory === category) {
@@ -113,38 +121,38 @@ export function CreatorActionsView({ videoId }: CreatorActionsViewProps) {
   if (error) return <section className="creator-actions-section"><div className="notice-banner error-banner">{error}</div></section>;
   if (!data?.audienceOverview) return <section className="creator-actions-section"><p className="section-secondary-text">Preparing your audience overview…</p></section>;
   const selected = categories.find((category) => category.key === selectedCategory) || null;
-  const selectedActions = selected ? selected.actions(data) : [];
+  const responseFilteredItems = responseFilter === 'needs' ? needsResponse : responseItems;
+  const selectedActions = selected ? selected.actions(data).filter((action) => responseFilter === 'all' || responseFilteredItems.some((item) => item.sourceInsightId === action.id)) : [];
   const selectedInsight = (data.creatorActions || []).find((action) => action.id === openInsight) || null;
 
   return <section className="creator-actions-section">
     {priorities.length > 0 && <section className="priority-section">
       <div className="priority-heading-row"><h3 className="priority-heading"><LearnTraceIcon name="flame" size={20} /> Worth your attention</h3></div>
       <p className="priority-supporting-copy">Repeated or actionable patterns from the conversations analyzed.</p>
-      <div className="priority-list">{priorities.map((action, index) => <PriorityItem key={action.id} action={action} index={index} onReview={() => {
+      <div className="priority-list">{priorities.map((action, index) => <PriorityItem key={action.id} action={action} response={responseByInsight.get(action.id)} index={index} onReview={() => {
         setSelectedCategory(action.category as CategoryKey); setOpenInsight(action.id);
       }} />)}</div>
     </section>}
 
     <section className="audience-explorer">
-      <h3 className="audience-explorer-title">Explore your audience</h3>
+      <div className="audience-explorer-heading"><h3 className="audience-explorer-title">Explore your audience</h3><div className="response-filter"><button type="button" className={responseFilter === 'all' ? 'active' : ''} onClick={() => setResponseFilter('all')}>All insights</button><button type="button" className={responseFilter === 'needs' ? 'active' : ''} onClick={() => { setResponseFilter('needs'); void refreshResponseWorkflow(); }}>Needs response <b>{needsResponse.length}</b></button></div></div>
       <div className="category-grid">{visibleCategories.map((category) => <button type="button" className={`category-card category-${category.key} ${selectedCategory === category.key ? 'selected' : ''}`} key={category.key} onClick={() => chooseCategory(category.key)} aria-pressed={selectedCategory === category.key}>
         <span className="category-heading"><span className="category-icon" aria-hidden="true"><LearnTraceIcon name={category.icon} /></span><span className="category-label">{category.label}</span></span>
         <strong>{category.count(data).toLocaleString()}</strong>
         <span className="category-count-label">{category.countLabel(data)}</span>
-        {category.secondary && <span className="category-secondary">{category.secondary(data)}</span>}
+        {responseFilter === 'needs' ? <span className="category-secondary">{responseFilteredItems.filter((item) => item.sourceCategory === category.key).length} need response</span> : category.secondary && <span className="category-secondary">{category.secondary(data)}</span>}
         <span className="category-cta">{category.cta}</span>
       </button>)}</div>
     </section>
-    <ResponseWorkflowView videoId={videoId} />
 
     {selected && <section className="category-panel" ref={categoryPanelRef} tabIndex={-1}>
       <div className="category-panel-heading"><div><span className="category-detail-label">{selected.key === 'actionable_feedback' || selected.key === 'positive_signal' || selected.key === 'curriculum_navigation' ? <><LearnTraceIcon name={selected.icon} size={16} /> {selected.label}</> : selected.label}</span><h3>{selected.heading}</h3><p>{selected.description}</p></div><button type="button" className="text-button" onClick={() => { setSelectedCategory(null); setOpenInsight(null); }}>Close</button></div>
       {selected.key === 'learning' && <LearningGroups actions={selectedActions} onOpen={setOpenInsight} compact={Boolean(openInsight)} />}
       {selected.key !== 'learning' && (selected.key === 'actionable_feedback' || selected.key === 'positive_signal'
         ? <ThemeRows actions={selectedActions} category={selected.key} onOpen={setOpenInsight} />
-        : <CategoryActionCarousel actions={selectedActions} onOpen={setOpenInsight} />)}
+        : <CategoryActionCarousel actions={selectedActions} onOpen={setOpenInsight} creatorReplies={creatorRepliesByInsight} responseItems={responseByInsight} videoId={videoId} showReplyTools={responseFilter === 'needs'} />)}
     </section>}
-    {selectedInsight && <InsightDrawer action={selectedInsight} videoId={videoId} onClose={() => setOpenInsight(null)} />}
+    {selectedInsight && <InsightDrawer action={selectedInsight} response={responseByInsight.get(selectedInsight.id)} creatorReply={creatorRepliesByInsight.get(selectedInsight.id)} videoId={videoId} onClose={() => setOpenInsight(null)} onWorkflowUpdated={() => { setOpenInsight(null); void refreshResponseWorkflow(); }} />}
   </section>;
 }
 
@@ -176,10 +184,10 @@ function priorityCategory(action: CreatorAction): { label: string; icon: LearnTr
   }
 }
 
-function PriorityItem({ action, index, onReview }: { action: CreatorAction; index: number; onReview: () => void }) {
+function PriorityItem({ action, response, index, onReview }: { action: CreatorAction; response?: ResponseWorkflowItem; index: number; onReview: () => void }) {
   const category = priorityCategory(action);
   const severeLearning = action.category === 'learning' && ['High', 'Critical'].includes(action.learningFrictionStatus || '');
-  return <button type="button" className={`priority-item priority-category-${action.category} ${severeLearning ? 'priority-high' : ''}`} onClick={onReview}><span className="priority-number">{String(index + 1).padStart(2, '0')}</span><span className="priority-copy"><span className="priority-category"><LearnTraceIcon name={category.icon} size={14} /> {category.label}</span><strong>{priorityDisplayTitle(action)}</strong><small>{category.count}</small></span><span className="priority-chevron">›</span></button>;
+  return <button type="button" className={`priority-item priority-category-${action.category} ${severeLearning ? 'priority-high' : ''}`} onClick={onReview}><span className="priority-number">{String(index + 1).padStart(2, '0')}</span><span className="priority-copy"><span className="priority-category"><LearnTraceIcon name={category.icon} size={14} /> {category.label}</span><strong>{priorityDisplayTitle(action)}</strong><small>{category.count}</small>{response?.resolutionStatus === 'needs_response' && <em className="response-status-pill">Needs response</em>}</span><span className="priority-chevron">›</span></button>;
 }
 
 
@@ -309,24 +317,42 @@ function ThemeRows({ actions, category, onOpen }: { actions: CreatorAction[]; ca
   </section>;
 }
 
-function CategoryActionCarousel({ actions, onOpen }: { actions: CreatorAction[]; onOpen: (id: string) => void }) {
+function CategoryActionCarousel({ actions, onOpen, creatorReplies, responseItems, videoId, showReplyTools }: { actions: CreatorAction[]; onOpen: (id: string) => void; creatorReplies: Map<string, CreatorReplyContext>; responseItems: Map<string, ResponseWorkflowItem>; videoId: string; showReplyTools: boolean }) {
   const [index, setIndex] = useState(0);
+  const [inlineDraft, setInlineDraft] = useState('');
+  const [draftingInline, setDraftingInline] = useState(false);
+  const [inlineDraftError, setInlineDraftError] = useState<string | null>(null);
+  const actionIdentity = actions.map((item) => item.id).join('|');
   const activeIndex = Math.min(index, Math.max(0, actions.length - 1));
   const action = actions[activeIndex];
-  useEffect(() => { setIndex(0); }, [actions]);
+  // `actions` is often a freshly filtered array. Reset only when its actual
+  // contents change, never just because opening a drawer caused a re-render.
+  useEffect(() => { setIndex(0); }, [actionIdentity]);
   if (!action) return <p className="learning-empty-state">No audience signals in this category yet.</p>;
   const icon = CATEGORY_ICONS[action.category as Exclude<CategoryKey, 'learning'>] || 'content';
   const normalizedCourseQuestion = courseQuestion(action);
   const quote = normalizedCourseQuestion || action.evidence[0]?.commentText;
   const isSingleContentRequest = action.category === 'content_opportunity' && action.supportingSignalCount === 1;
+  const creatorReply = creatorReplies.get(action.id);
+  const responseItem = responseItems.get(action.id);
+  const createInlineDraft = async (regenerate = false) => {
+    if (!responseItem || draftingInline) return;
+    setDraftingInline(true); setInlineDraftError(null);
+    try { const result = await generateResponseDraft(videoId, responseItem.workflowId, regenerate); setInlineDraft(result.draft?.draft_text || ''); }
+    catch (error) { setInlineDraftError(error instanceof Error ? error.message : 'Could not draft a reply.'); }
+    finally { setDraftingInline(false); }
+  };
   const cardContent = <>
     <span className="category-feature-icon"><LearnTraceIcon name={icon} size={31} /></span>
-    <span className="category-feature-copy">
+    <div className="category-feature-copy">
       <span className="category-feature-kind">{actionKind(action)}</span>
       <strong>{displayActionTitle(action)}</strong>
       <span className={`category-feature-evidence ${normalizedCourseQuestion ? 'normalized-course-question' : ''} ${isSingleContentRequest ? 'full-request-visible' : ''}`}>{quote ? normalizedCourseQuestion || `“${quote}”` : action.summary}</span>
-      <span className="category-feature-footer"><span><LearnTraceIcon name="users" size={16} /> {action.supportingSignalCount} learner{action.category === 'curriculum_navigation' ? (action.supportingSignalCount === 1 ? ' asked this' : 's asked something similar') : (action.supportingSignalCount === 1 ? '' : 's')} {action.category === 'content_opportunity' ? 'requested this' : action.category === 'curriculum_navigation' ? '' : 'raised this'}</span><em>{action.category === 'curriculum_navigation' ? 'See original comment →' : 'View evidence →'}</em></span>
-    </span>
+      {isSingleContentRequest && creatorReply && <details className="inline-creator-reply"><summary><span>{creatorReply.avatarUrl ? <img src={creatorReply.avatarUrl} alt="" onError={(event) => { event.currentTarget.style.display = 'none'; }} /> : <i>{(creatorReply.authorName || 'C').charAt(0).toUpperCase()}</i>}</span>{creatorReply.authorName || 'Video creator'} replied <b>⌄</b></summary><p>{creatorReply.text}</p></details>}
+      <span className="category-feature-footer"><span><LearnTraceIcon name="users" size={16} /> {action.supportingSignalCount} learner{action.category === 'curriculum_navigation' ? (action.supportingSignalCount === 1 ? ' asked this' : 's asked something similar') : (action.supportingSignalCount === 1 ? '' : 's')} {action.category === 'content_opportunity' ? 'requested this' : action.category === 'curriculum_navigation' ? '' : 'raised this'}</span>{isSingleContentRequest && responseItem?.resolutionStatus !== 'resolved' && showReplyTools ? <button type="button" className="inline-draft-reply" onClick={() => void createInlineDraft()}>{draftingInline ? 'Writing a draft…' : responseItem?.hasDraft ? 'View saved draft' : 'Draft a reply ✦'}</button> : <em>{isSingleContentRequest && responseItem?.resolutionStatus !== 'resolved' ? 'Needs review' : isSingleContentRequest ? 'Shown inline' : action.category === 'curriculum_navigation' ? 'See original comment →' : 'View evidence →'}</em>}</span>
+      {isSingleContentRequest && showReplyTools && inlineDraft && <div className="inline-draft-card"><label htmlFor={`inline-reply-${action.id}`}>Draft reply <small>Review before posting</small></label><textarea id={`inline-reply-${action.id}`} value={inlineDraft} onChange={(event) => setInlineDraft(event.target.value)} maxLength={900} /><div><button type="button" onClick={() => void createInlineDraft(true)}>Regenerate</button><button type="button" onClick={() => void navigator.clipboard?.writeText(inlineDraft)}>Copy reply</button></div></div>}
+      {isSingleContentRequest && inlineDraftError && <p className="inline-draft-error">{inlineDraftError}</p>}
+    </div>
   </>;
   return <section className={`category-action-carousel carousel-${action.category}`} aria-label={`${actionKind(action)} carousel`}>
     {isSingleContentRequest ? <article className="category-feature-card category-feature-static">{cardContent}</article> : <button type="button" className="category-feature-card" onClick={() => onOpen(action.id)} aria-label={`View details for ${actionLabel(action)}`}>{cardContent}</button>}
@@ -339,7 +365,7 @@ function CategoryActionCarousel({ actions, onOpen }: { actions: CreatorAction[];
   </section>;
 }
 
-function InsightDrawer({ action, videoId, onClose }: { action: CreatorAction; videoId: string; onClose: () => void }) {
+function InsightDrawer({ action, response, creatorReply, videoId, onClose, onWorkflowUpdated }: { action: CreatorAction; response?: ResponseWorkflowItem; creatorReply?: CreatorReplyContext; videoId: string; onClose: () => void; onWorkflowUpdated: () => void }) {
   const [showComments, setShowComments] = useState(false);
   const [diagnosis, setDiagnosis] = useState<AiInterpretation | null>(null);
   const [diagnosisEligible, setDiagnosisEligible] = useState(false);
@@ -347,6 +373,9 @@ function InsightDrawer({ action, videoId, onClose }: { action: CreatorAction; vi
   const [diagnosisMessage, setDiagnosisMessage] = useState<string | null>(null);
   const [diagnosisError, setDiagnosisError] = useState<string | null>(null);
   const [generatingDiagnosis, setGeneratingDiagnosis] = useState(false);
+  const [replyDraft, setReplyDraft] = useState('');
+  const [draftingReply, setDraftingReply] = useState(false);
+  const [responseError, setResponseError] = useState<string | null>(null);
   const learning = action.category === 'learning';
   const feedback = action.category === 'actionable_feedback';
   const positive = action.category === 'positive_signal';
@@ -419,6 +448,19 @@ function InsightDrawer({ action, videoId, onClose }: { action: CreatorAction; vi
       setGeneratingDiagnosis(false);
     }
   };
+  const draftReply = async (regenerate = false) => {
+    if (!response || draftingReply) return;
+    setDraftingReply(true); setResponseError(null);
+    try { const result = await generateResponseDraft(videoId, response.workflowId, regenerate); setReplyDraft(result.draft?.draft_text || ''); }
+    catch (error) { setResponseError(error instanceof Error ? error.message : 'A reply draft is temporarily unavailable.'); }
+    finally { setDraftingReply(false); }
+  };
+  const resolveResponse = async (resolved: boolean) => {
+    if (!response) return;
+    setResponseError(null);
+    try { await setResponseWorkflowResolution(videoId, response.workflowId, resolved); onWorkflowUpdated(); }
+    catch (error) { setResponseError(error instanceof Error ? error.message : 'Could not update response status.'); }
+  };
   return <><button className="insight-drawer-backdrop" aria-label="Close insight details" onClick={onClose} /><aside className={`insight-drawer ${feedback ? 'drawer-feedback' : positive ? 'drawer-positive' : ''}`} role="dialog" aria-modal="true" aria-label={`${displayActionTitle(action)} details`}>
     <button type="button" className="drawer-close" onClick={onClose} aria-label="Close insight details"><LearnTraceIcon name="close" size={20} /></button>
     <span className={`insight-kind drawer-status ${hasInterpretation ? 'status-strong' : repeated ? 'status-repeated' : ''}`}>{hasInterpretation && <LearnTraceIcon name="flame" size={15} />}{repeated && !hasInterpretation && <LearnTraceIcon name="messages" size={15} />}{status}</span><h3>{displayActionTitle(action)}</h3>
@@ -433,6 +475,16 @@ function InsightDrawer({ action, videoId, onClose }: { action: CreatorAction; vi
     {learning && repeated && !hasInterpretation && !diagnosisChecked && <section className="drawer-section drawer-watch"><DrawerHeading icon="eye">Worth watching</DrawerHeading><p>{recommendation}</p></section>}
     {positive && <section className="drawer-section drawer-positive-meaning"><DrawerHeading icon="positive">Why this matters</DrawerHeading><p>{action.isGeneralPositive ? 'Learners praised the teaching overall but did not name a particular teaching approach.' : `Learners specifically responded positively to ${displayActionTitle(action).toLocaleLowerCase()}.`}</p></section>}
     {!learning && <section className="drawer-section drawer-action"><DrawerHeading icon={positive ? 'positive' : feedback ? 'content' : course ? 'path' : 'content'}>{positive ? action.isGeneralPositive ? 'What this means' : 'Keep doing this' : course ? 'What you could clarify' : 'What you could try'}</DrawerHeading><p>{action.suggestedAction}</p></section>}
+    {(response || creatorReply) && <section className="drawer-section drawer-response">
+      <DrawerHeading icon="reply">Reply to learners</DrawerHeading>
+      {(response?.creatorReplyText || creatorReply) && <div className="creator-reply-context">
+        <div className="creator-reply-header">{(response?.creatorReplyAvatarUrl || creatorReply?.avatarUrl) && <img src={response?.creatorReplyAvatarUrl || creatorReply?.avatarUrl || ''} alt="" onError={(event) => { event.currentTarget.style.display = 'none'; event.currentTarget.nextElementSibling?.classList.remove('is-hidden'); }} />}<span className={response?.creatorReplyAvatarUrl || creatorReply?.avatarUrl ? 'creator-avatar-fallback is-hidden' : 'creator-avatar-fallback'} aria-hidden="true">{(response?.creatorReplyAuthorName || creatorReply?.authorName || 'C').trim().charAt(0).toUpperCase()}</span><b>{response?.creatorReplyAuthorName || creatorReply?.authorName || 'Video creator'} replied in this thread</b></div>
+        <p>{response?.creatorReplyText || creatorReply?.text}</p>
+        {response && response.resolutionStatus !== 'resolved' && <small>This reply may help; confirm that it addresses the learner’s specific question before resolving it.</small>}
+      </div>}
+      {response && (response.resolutionStatus === 'resolved' || response.resolutionStatus === 'community_answered' ? <div className="response-complete"><p className="response-responded">{response.resolutionStatus === 'community_answered' ? 'Answered by the community' : 'Marked as handled'}</p>{!response.creatorReplyText && <p>{response.communityReplyText || 'You marked this conversation as resolved.'}</p>}<button type="button" className="text-button" onClick={() => void resolveResponse(false)}>Reopen for review</button></div> : <><div className="response-review"><span>{response.resolutionStatus === 'unclear' ? 'REVIEW NEEDED' : 'OPEN FOR REVIEW'}</span><p>Best next step: <b>{response.suggestedResponseType}</b></p></div><button type="button" className="drawer-generate-button" disabled={draftingReply} onClick={() => void draftReply(false)}>{draftingReply ? 'Writing a draft…' : response.hasDraft ? 'View saved draft' : 'Draft a reply ✦'}</button>{replyDraft && <div className="reply-draft-card"><label className="ai-draft-label" htmlFor="reply-draft">Draft reply <small>Review and edit before posting</small></label><textarea id="reply-draft" className="reply-draft" value={replyDraft} onChange={(event) => setReplyDraft(event.target.value)} maxLength={900} /><div className="reply-draft-actions"><button type="button" onClick={() => void draftReply(true)}>Regenerate</button><button type="button" onClick={() => void navigator.clipboard?.writeText(replyDraft)}>Copy</button></div></div>}<button type="button" className="text-button response-resolve" onClick={() => void resolveResponse(true)}>I’ve handled this</button></>)}
+      {responseError && <p className="drawer-diagnosis-error">{responseError}</p>}
+    </section>}
     <details className="drawer-trust"><summary><LearnTraceIcon name="info" size={16} /> Why this is showing</summary><p>{course ? courseTrustText : trustText}</p></details>
   </aside></>;
 }

@@ -72,11 +72,12 @@ export interface StoredComment {
   published_at: string;
   author_channel_id: string | null;
   author_name: string | null;
+  author_profile_image_url: string | null;
 }
 
 export async function getCommentsForVideo(videoId: string): Promise<StoredComment[]> {
   const [rows] = await getBigQueryClient().query({
-    query: `SELECT comment_id, parent_comment_id, comment_text, is_reply, like_count, CAST(published_at AS STRING) AS published_at, author_channel_id, author_name FROM \`${process.env.GOOGLE_CLOUD_PROJECT_ID}.${process.env.BIGQUERY_DATASET}.${TABLE_NAMES.COMMENTS}\` WHERE video_id = @video_id ORDER BY published_at, comment_id`,
+    query: `SELECT comment_id, parent_comment_id, comment_text, is_reply, like_count, CAST(published_at AS STRING) AS published_at, author_channel_id, author_name, author_profile_image_url FROM \`${process.env.GOOGLE_CLOUD_PROJECT_ID}.${process.env.BIGQUERY_DATASET}.${TABLE_NAMES.COMMENTS}\` WHERE video_id = @video_id ORDER BY published_at, comment_id`,
     params: { video_id: videoId }, location: process.env.BIGQUERY_LOCATION,
   });
   return rows as StoredComment[];

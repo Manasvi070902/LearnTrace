@@ -247,8 +247,11 @@ export interface CreatorActionsResponse {
   positiveSignals?: CreatorAction[];
   peerLearning?: CreatorAction[];
   otherUseful?: CreatorAction[];
+  creatorReplies?: CreatorReplyContext[];
   error?: string;
 }
+
+export interface CreatorReplyContext { sourceInsightId: string; commentId: string; text: string; authorName: string | null; avatarUrl: string | null; }
 
 export type ResponseWorkflowStatus = 'needs_response' | 'resolved' | 'community_answered' | 'unclear';
 export interface ResponseWorkflowEvidence { comment_id: string; parent_comment_id: string | null; comment_text: string; is_reply: boolean; published_at?: string; }
@@ -257,6 +260,11 @@ export interface ResponseWorkflowItem {
   title: string; normalizedNeed: string | null; supportingCommentIds: string[]; priority: 'high' | 'medium' | 'low';
   resolutionStatus: ResponseWorkflowStatus; resolutionSource: string | null; resolvedAt: string | null;
   suggestedResponseType: string; evidence: ResponseWorkflowEvidence[];
+  hasDraft?: boolean;
+  creatorReplyText?: string | null;
+  creatorReplyAuthorName?: string | null;
+  creatorReplyAvatarUrl?: string | null;
+  communityReplyText?: string | null;
 }
 export interface ResponseWorkflowResponse { status: 'success' | 'error'; videoId?: string; needsResponse?: ResponseWorkflowItem[]; resolved?: ResponseWorkflowItem[]; summary?: { total: number; needsResponse: number; resolved: number }; error?: string; }
 export interface ResponseDraftResponse { status: 'success' | 'error'; cached?: boolean; draft?: { draft_id: string; draft_text: string; created_at: string }; error?: string; }

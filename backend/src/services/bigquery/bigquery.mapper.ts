@@ -29,6 +29,7 @@ export interface CommentRow {
   is_reply: boolean;
   author_channel_id: string | null;
   author_name: string | null;
+  author_profile_image_url: string | null;
   fetched_at: string;
 }
 
@@ -72,6 +73,7 @@ export function mapCommentToRow(
     is_reply: false,
     author_channel_id: comment.authorChannelId || null,
     author_name: comment.authorDisplayName || null,
+    author_profile_image_url: comment.authorProfileImageUrl || null,
     fetched_at: fetchedAt,
   };
 }
@@ -97,6 +99,7 @@ export function mapReplyToRow(
     is_reply: true,
     author_channel_id: reply.authorChannelId || null,
     author_name: reply.authorDisplayName || null,
+    author_profile_image_url: reply.authorProfileImageUrl || null,
     fetched_at: fetchedAt,
   };
 }

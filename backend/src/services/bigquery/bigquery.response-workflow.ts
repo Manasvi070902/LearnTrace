@@ -41,7 +41,7 @@ export async function upsertWorkflowItems(items: ResponseWorkflowItem[]): Promis
   await getBigQueryClient().query({
     query: `MERGE ${table(TABLE_NAMES.RESPONSE_WORKFLOW)} target USING UNNEST(@rows) source
       ON target.workflow_id = source.workflow_id AND target.video_id = source.video_id
-      WHEN MATCHED THEN UPDATE SET source_category = source.source_category, source_insight_id = source.source_insight_id, title = source.title, normalized_need = source.normalized_need, supporting_comment_ids = source.supporting_comment_ids, priority = source.priority, suggested_response_type = source.suggested_response_type, updated_at = TIMESTAMP(source.updated_at)
+      WHEN MATCHED THEN UPDATE SET source_category = source.source_category, source_insight_id = source.source_insight_id, title = source.title, normalized_need = source.normalized_need, supporting_comment_ids = source.supporting_comment_ids, priority = source.priority, suggested_response_type = source.suggested_response_type, creator_reply_comment_id = source.creator_reply_comment_id, community_reply_comment_id = source.community_reply_comment_id, resolution_status = IF(target.resolution_source = 'creator_reply_detected', 'needs_response', target.resolution_status), resolution_source = IF(target.resolution_source = 'creator_reply_detected', NULL, target.resolution_source), resolved_at = IF(target.resolution_source = 'creator_reply_detected', NULL, target.resolved_at), updated_at = TIMESTAMP(source.updated_at)
       WHEN NOT MATCHED THEN INSERT (workflow_id, video_id, source_category, source_insight_id, title, normalized_need, supporting_comment_ids, priority, resolution_status, resolution_source, resolved_at, creator_reply_comment_id, community_reply_comment_id, suggested_response_type, created_at, updated_at)
       VALUES (source.workflow_id, source.video_id, source.source_category, source.source_insight_id, source.title, source.normalized_need, source.supporting_comment_ids, source.priority, source.resolution_status, source.resolution_source, TIMESTAMP(source.resolved_at), source.creator_reply_comment_id, source.community_reply_comment_id, source.suggested_response_type, TIMESTAMP(source.created_at), TIMESTAMP(source.updated_at))`,
     params: { rows },
@@ -63,6 +63,16 @@ export async function getCachedResponseDraft(videoId: string, workflowId: string
     params: { video_id: videoId, workflow_id: workflowId, context_version: contextVersion }, ...options,
   });
   return (rows?.[0] as StoredResponseDraft) || null;
+}
+
+/** Returns cached workflow/context pairs in one read for the workflow overview. */
+export async function getCachedDraftContextKeys(videoId: string, workflowIds: string[]): Promise<Set<string>> {
+  if (!workflowIds.length) return new Set();
+  const [rows] = await getBigQueryClient().query({
+    query: `SELECT workflow_id, context_version FROM ${table(TABLE_NAMES.RESPONSE_DRAFTS)} WHERE video_id = @video_id AND workflow_id IN UNNEST(@workflow_ids)`,
+    params: { video_id: videoId, workflow_ids: workflowIds }, types: { workflow_ids: ['STRING'] }, ...options,
+  });
+  return new Set((rows || []).map((row: { workflow_id: string; context_version: string }) => `${row.workflow_id}:${row.context_version}`));
 }
 
 export async function storeResponseDraft(draft: StoredResponseDraft): Promise<void> {
