@@ -7,6 +7,7 @@ import dataRouter from './routes/data';
 import frictionRouter from './routes/friction';
 import { initializeBigQueryTables } from './services/bigquery/bigquery.init';
 import learningSignalsRouter from './routes/learning-signals';
+import channelRouter from './routes/channel';
 
 dotenv.config();
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
@@ -29,6 +30,7 @@ app.use('/api/analyze', frictionRouter);
 
 // Data / Verification Endpoints
 app.use('/api/data', dataRouter);
+app.use('/api/channel', channelRouter);
 
 // Serve the built frontend from the project root in both compiled and ts-node
 // runtimes, without relying on the process working directory.

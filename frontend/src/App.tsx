@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
-import { analyzeVideo, friendlyRequestError, getCachedVideoAnalysis } from './services/api';
+import React, { useEffect, useState } from 'react';
+import { analyzeVideo, friendlyRequestError, getCachedVideoAnalysis, resolveChannel } from './services/api';
 import { AnalyzeVideoResponse } from './types';
 import { DataInspectionView } from './components/DataInspectionView';
 import { RequestError, RequestErrorDetails } from './components/RequestError';
+import { ChannelOverview } from './components/ChannelOverview';
 
 const DEMO_VIDEO_ID = 'PFDu9oVAE-g';
 const DEMO_THUMBNAIL = `https://i.ytimg.com/vi/${DEMO_VIDEO_ID}/hqdefault.jpg`;
@@ -13,11 +14,13 @@ export default function App() {
   const [error, setError] = useState<RequestErrorDetails | null>(null);
   const [demoLoading, setDemoLoading] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<AnalyzeVideoResponse | null>(null);
+  const [channelId, setChannelId] = useState<string | null>(() => /^\/channel\/(UC[A-Za-z0-9_-]{22})$/.exec(window.location.pathname)?.[1] || null);
+  const [fromChannel, setFromChannel] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!url.trim()) {
-      setError({ title: 'Enter a valid public YouTube video URL.', message: 'Check the link and try again.' });
+      setError({ title: 'Please enter a YouTube video or channel URL.', message: 'Check the link and try again.' });
       return;
     }
 
@@ -25,6 +28,12 @@ export default function App() {
     setError(null);
 
     try {
+      if (!isYouTubeVideoUrl(url.trim())) {
+        const channel = await resolveChannel(url.trim());
+        setChannelId(channel.channelId);
+        window.history.pushState({}, '', `/channel/${channel.channelId}`);
+        return;
+      }
       const response = await analyzeVideo(url.trim());
       if (response.status === 'error') {
         setError(friendlyRequestError(undefined, response.error));
@@ -38,6 +47,11 @@ export default function App() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    const onPopState = () => { setAnalysisResult(null); setChannelId(/^\/channel\/(UC[A-Za-z0-9_-]{22})$/.exec(window.location.pathname)?.[1] || null); };
+    window.addEventListener('popstate', onPopState); return () => window.removeEventListener('popstate', onPopState);
+  }, []);
 
   const handleDemo = async () => {
     setDemoLoading(true);
@@ -53,8 +67,22 @@ export default function App() {
 
   const handleReset = () => {
     setAnalysisResult(null);
+    setChannelId(null);
+    setFromChannel(false);
     setError(null);
     setUrl('');
+    if (window.location.pathname !== '/') window.history.pushState({}, '', '/');
+  };
+
+  const openAnalysis = (data: AnalyzeVideoResponse, openedFromChannel = false) => { setAnalysisResult(data); setChannelId(null); setFromChannel(openedFromChannel); };
+  const analyzeFromChannel = async (videoUrl: string) => {
+    setChannelId(null); setFromChannel(false); setUrl(videoUrl); setLoading(true); setError(null); window.history.pushState({}, '', '/');
+    try {
+      const response = await analyzeVideo(videoUrl);
+      if (response.status === 'error') setError(friendlyRequestError(undefined, response.error));
+      else setAnalysisResult(response);
+    } catch { setError(friendlyRequestError()); }
+    finally { setLoading(false); }
   };
 
   return (
@@ -75,13 +103,15 @@ if (trace.gapDetected) { renderHeatmap(); updateMetrics(); }`}
           LearnTrace
         </div>
         {analysisResult
-          ? <button type="button" className="header-back-button" onClick={handleReset}>&larr; Back to videos</button>
+          ? <button type="button" className="header-back-button" onClick={() => fromChannel ? window.history.back() : handleReset()}>&larr; {fromChannel ? 'Back to channel' : 'Back to videos'}</button>
           : <span className="subtitle-tag">Learning Observability for Educational Content</span>}
       </header>
 
       <main className="main-content">
         {analysisResult ? (
           <DataInspectionView data={analysisResult} />
+        ) : channelId ? (
+          <ChannelOverview channelId={channelId} onBack={handleReset} onOpenAnalysis={openAnalysis} onAnalyze={analyzeFromChannel} />
         ) : (
           <div className="hero-section">
             <p className="tagline">AI-powered learning observability for educational content.</p>
@@ -173,4 +203,14 @@ if (trace.gapDetected) { renderHeatmap(); updateMetrics(); }`}
 
     </div>
   );
+}
+
+function isYouTubeVideoUrl(value: string): boolean {
+  try {
+    let candidate = value.trim(); if (!/^https?:\/\//i.test(candidate)) candidate = `https://${candidate}`;
+    const url = new URL(candidate); const host = url.hostname.toLowerCase().replace(/^www\./, ''); const segments = url.pathname.split('/').filter(Boolean);
+    if (host === 'youtu.be') return /^[A-Za-z0-9_-]{11}$/.test(segments[0] || '');
+    if (!['youtube.com', 'm.youtube.com', 'music.youtube.com'].includes(host)) return false;
+    return (url.pathname === '/watch' && /^[A-Za-z0-9_-]{11}$/.test(url.searchParams.get('v') || '')) || ['embed', 'v', 'shorts'].includes(segments[0]) && /^[A-Za-z0-9_-]{11}$/.test(segments[1] || '');
+  } catch { return false; }
 }

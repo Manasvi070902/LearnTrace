@@ -1,4 +1,4 @@
-import { AnalyzeVideoResponse, ConceptClustersResponse, CreatorActionsResponse, CreatorReplyAssessmentResponse, DiagnosisResponse, FrictionResponse, LearningSignalResponse, ResponseDraftMode, ResponseDraftResponse, ResponseWorkflowResponse, VideoStats } from '../types';
+import { AnalyzeVideoResponse, ChannelCatalogResponse, ChannelMetadata, ConceptClustersResponse, CreatorActionsResponse, CreatorReplyAssessmentResponse, DiagnosisResponse, FrictionResponse, LearningSignalResponse, ResponseDraftMode, ResponseDraftResponse, ResponseWorkflowResponse, VideoStats } from '../types';
 import { RequestErrorDetails } from '../components/RequestError';
 
 const API_BASE_URL = '/api';
@@ -66,6 +66,20 @@ export async function getCachedVideoAnalysis(videoId: string): Promise<AnalyzeVi
   const data = await response.json();
   if (!response.ok) throw friendlyRequestError(response.status, data.error);
   return data as AnalyzeVideoResponse;
+}
+
+export async function resolveChannel(url: string): Promise<ChannelMetadata> {
+  const response = await fetch(`${API_BASE_URL}/channel/resolve?url=${encodeURIComponent(url)}`); const data = await response.json();
+  if (!response.ok) throw friendlyRequestError(response.status, data.error); return data;
+}
+export async function getChannel(channelId: string): Promise<ChannelMetadata> {
+  const response = await fetch(`${API_BASE_URL}/channel/${encodeURIComponent(channelId)}`); const data = await response.json();
+  if (!response.ok) throw friendlyRequestError(response.status, data.error); return data;
+}
+export async function getChannelVideos(channelId: string, pageToken?: string): Promise<ChannelCatalogResponse> {
+  const suffix = pageToken ? `?pageToken=${encodeURIComponent(pageToken)}` : '';
+  const response = await fetch(`${API_BASE_URL}/channel/${encodeURIComponent(channelId)}/videos${suffix}`); const data = await response.json();
+  if (!response.ok) throw friendlyRequestError(response.status, data.error); return data;
 }
 
 /** Retrieves persisted BigQuery counts for a previously analyzed video. */
