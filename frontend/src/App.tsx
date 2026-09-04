@@ -1,18 +1,23 @@
 import React, { useState } from 'react';
-import { analyzeVideo } from './services/api';
+import { analyzeVideo, friendlyRequestError, getCachedVideoAnalysis } from './services/api';
 import { AnalyzeVideoResponse } from './types';
 import { DataInspectionView } from './components/DataInspectionView';
+import { RequestError, RequestErrorDetails } from './components/RequestError';
+
+const DEMO_VIDEO_ID = 'PFDu9oVAE-g';
+const DEMO_THUMBNAIL = `https://i.ytimg.com/vi/${DEMO_VIDEO_ID}/hqdefault.jpg`;
 
 export default function App() {
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<RequestErrorDetails | null>(null);
+  const [demoLoading, setDemoLoading] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<AnalyzeVideoResponse | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!url.trim()) {
-      setError('Please enter a valid YouTube video URL.');
+      setError({ title: 'Enter a valid public YouTube video URL.', message: 'Check the link and try again.' });
       return;
     }
 
@@ -22,15 +27,27 @@ export default function App() {
     try {
       const response = await analyzeVideo(url.trim());
       if (response.status === 'error') {
-        setError(response.error || 'Failed to analyze video. Please try again.');
+        setError(friendlyRequestError(undefined, response.error));
         setAnalysisResult(null);
       } else {
         setAnalysisResult(response);
       }
     } catch (err: any) {
-      setError('An unexpected error occurred while processing your request.');
+      setError(friendlyRequestError());
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDemo = async () => {
+    setDemoLoading(true);
+    setError(null);
+    try {
+      setAnalysisResult(await getCachedVideoAnalysis(DEMO_VIDEO_ID));
+    } catch {
+      setError({ title: 'Demo analysis is temporarily unavailable.', message: 'You can still analyze a public educational YouTube video above.' });
+    } finally {
+      setDemoLoading(false);
     }
   };
 
@@ -100,12 +117,18 @@ if (trace.gapDetected) { renderHeatmap(); updateMetrics(); }`}
               </button>
             </form>
 
-            {error && (
-              <div className="error-banner">
-                <span className="error-icon">&#9888;</span>
-                <span className="error-message">{error}</span>
-              </div>
-            )}
+            {error && <RequestError error={error} onRetry={url.trim() ? () => void handleSubmit({ preventDefault: () => undefined } as React.FormEvent) : undefined} />}
+
+            <section className="demo-section" aria-labelledby="demo-heading">
+              <h2 id="demo-heading">Try a pre-tested example</h2>
+              <p>Explore LearnTrace instantly with a pre-analyzed educational video.</p>
+              <button type="button" className="demo-card" onClick={() => void handleDemo()} disabled={demoLoading}>
+                <img src={DEMO_THUMBNAIL} alt="Eigenvectors and eigenvalues video thumbnail" />
+                <span className="demo-card-copy"><strong>Eigenvectors and eigenvalues</strong><em>3Blue1Brown</em><small>Explore recurring learner questions, Learning Friction and creator actions.</small></span>
+                <span className="demo-card-cta">{demoLoading ? 'Loading…' : 'View analysis →'}</span>
+              </button>
+              <small className="demo-caption">Uses cached analysis for a faster shared demo.</small>
+            </section>
 
             <div className="features-badges">
               <span className="feature-badge">

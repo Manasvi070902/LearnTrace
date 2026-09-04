@@ -159,7 +159,7 @@ export function CreatorActionsView({ videoId }: CreatorActionsViewProps) {
     </section>
 
     {selected && <section className="category-panel" ref={categoryPanelRef} tabIndex={-1}>
-      <div className="category-panel-heading"><div><span className="category-detail-label">{selected.key === 'actionable_feedback' || selected.key === 'positive_signal' || selected.key === 'curriculum_navigation' ? <><LearnTraceIcon name={selected.icon} size={16} /> {selected.label}</> : selected.label}</span><h3>{selected.heading}</h3><p>{selected.description}</p></div><button type="button" className="text-button" onClick={() => { setSelectedCategory(null); setOpenInsight(null); }}>Close</button></div>
+      <div className="category-panel-heading"><div><span className="category-detail-label">{selected.key === 'actionable_feedback' || selected.key === 'positive_signal' || selected.key === 'curriculum_navigation' ? <><LearnTraceIcon name={selected.icon} size={16} /> {selected.label}</> : selected.label}</span><h3>{selected.heading}</h3><p>{selected.description}</p></div><button type="button" className="text-button category-panel-close" onClick={() => { setSelectedCategory(null); setOpenInsight(null); }}>Close</button></div>
       {selected.key === 'learning' && <LearningGroups actions={selectedActions} onOpen={setOpenInsight} compact={Boolean(openInsight)} />}
       {selected.key !== 'learning' && (selected.key === 'actionable_feedback' || selected.key === 'positive_signal'
         ? <ThemeRows actions={selectedActions} category={selected.key} onOpen={setOpenInsight} />

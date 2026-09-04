@@ -137,10 +137,9 @@ router.post('/video/:videoId/friction', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error(`[Friction API] Error analyzing video '${videoId}':`, error);
-    const message = error instanceof Error ? error.message : 'Friction analysis failed.';
     return res.status(500).json({
       status: 'error',
-      error: message,
+      error: 'Something went wrong',
       videoId,
     });
   }
@@ -265,7 +264,7 @@ router.get('/video/:videoId/concepts/:concept/diagnosis', async (req: Request, r
     const cached = await getCachedDiagnosis(videoId, concept, getConfiguredDiagnosisModel(), fingerprintEvidence(packet));
     return res.json({ status: 'success', eligible: true, cached: Boolean(cached), interpretation: cached || null, evidence: packet });
   } catch (error) {
-    return res.status(500).json({ status: 'error', error: error instanceof Error ? error.message : 'Could not retrieve AI interpretation.' });
+    return res.status(500).json({ status: 'error', error: 'Something went wrong' });
   }
 });
 
@@ -358,7 +357,7 @@ router.get('/video/:videoId/creator-actions', async (req: Request, res: Response
       debug: { commentAccounting: result.audienceOverview },
     });
   } catch (error) {
-    return res.status(500).json({ status: 'error', error: error instanceof Error ? error.message : 'Could not load creator actions.' });
+    return res.status(500).json({ status: 'error', error: 'Something went wrong' });
   }
 });
 
@@ -403,7 +402,7 @@ router.get('/video/:videoId/response-workflow', async (req: Request, res: Respon
     const resolved = items.filter((item) => item.resolutionStatus === 'resolved' || item.resolutionStatus === 'community_answered');
     return res.json({ status: 'success', videoId, needsResponse, resolved, summary: { total: items.length, needsResponse: needsResponse.length, resolved: resolved.length } });
   } catch (error) {
-    return res.status(500).json({ status: 'error', error: error instanceof Error ? error.message : 'Could not load response workflow.' });
+    return res.status(500).json({ status: 'error', error: 'Something went wrong' });
   }
 });
 
@@ -413,7 +412,7 @@ router.post('/video/:videoId/response-workflow/:workflowId/resolution', async (r
     if (typeof resolved !== 'boolean') return res.status(400).json({ status: 'error', error: 'resolved must be true or false.' });
     await setWorkflowResolution(String(req.params.videoId), String(req.params.workflowId), resolved);
     return res.json({ status: 'success', resolved });
-  } catch (error) { return res.status(500).json({ status: 'error', error: error instanceof Error ? error.message : 'Could not update workflow resolution.' }); }
+  } catch (error) { return res.status(500).json({ status: 'error', error: 'Something went wrong' }); }
 });
 
 /** Gemini is invoked only after an explicit draft/re-generate click. */

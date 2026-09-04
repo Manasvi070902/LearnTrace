@@ -1,6 +1,26 @@
 import { AnalyzeVideoResponse, ConceptClustersResponse, CreatorActionsResponse, CreatorReplyAssessmentResponse, DiagnosisResponse, FrictionResponse, LearningSignalResponse, ResponseDraftMode, ResponseDraftResponse, ResponseWorkflowResponse, VideoStats } from '../types';
+import { RequestErrorDetails } from '../components/RequestError';
 
 const API_BASE_URL = '/api';
+
+export function friendlyRequestError(status?: number, providerMessage?: string): RequestErrorDetails {
+  const message = (providerMessage || '').toLowerCase();
+  if ((status === 503 && /ai|gemini/.test(message)) || /high demand/.test(message)) return { title: 'AI is temporarily busy', message: 'AI analysis is experiencing high demand right now. Please try again shortly. Your existing LearnTrace data is safe.' };
+  if (status === 429 && /daily|configured development ai limit/.test(message)) return { title: "Today's AI analysis allowance has been reached.", message: 'You can still explore any existing LearnTrace analysis.' };
+  if (status === 429 || /rate limit|resource.?exhausted|quota/.test(message)) return { title: 'AI request temporarily unavailable', message: 'Please wait a moment and try again.' };
+  if (status === 503 || /youtube/.test(message)) return { title: 'YouTube is temporarily unavailable', message: "We couldn't retrieve this video's conversations right now. Please try again." };
+  if (/valid.*youtube|invalid.*url/.test(message) || status === 400) return { title: 'Enter a valid public YouTube video URL.', message: 'Check the link and try again.' };
+  if (status === 404 || /private|isn't available/.test(message)) return { title: "This video isn't available for analysis.", message: 'Make sure it is public and comments are accessible.' };
+  if (/comments.*unavailable|commentsdisabled/.test(message)) return { title: 'Comments are unavailable for this video.', message: 'Choose a video with public comments and try again.' };
+  return { title: 'Something went wrong', message: "LearnTrace couldn't complete this request. Please try again." };
+}
+
+export function friendlyErrorMessage(message: string): RequestErrorDetails {
+  if (/AI is temporarily busy/i.test(message)) return friendlyRequestError(503, 'AI unavailable');
+  if (/AI request temporarily unavailable/i.test(message)) return friendlyRequestError(429, 'rate limit');
+  if (/Today's AI analysis allowance/i.test(message)) return friendlyRequestError(429, 'daily limit');
+  return friendlyRequestError(undefined, message);
+}
 
 /**
  * Sends a YouTube URL to the backend for video analysis.
@@ -23,10 +43,11 @@ export async function analyzeVideo(url: string): Promise<AnalyzeVideoResponse> {
         totalCommentsFetched: 0,
         totalRepliesFetched: 0,
         comments: [],
-        error: `Server error (${response.status}): ${response.statusText}`,
+        error: friendlyRequestError(response.status).title,
       };
     }
 
+    if (!response.ok) return { ...data, error: friendlyRequestError(response.status, data.error).title };
     return data;
   } catch (err: any) {
     return {
@@ -34,9 +55,17 @@ export async function analyzeVideo(url: string): Promise<AnalyzeVideoResponse> {
       totalCommentsFetched: 0,
       totalRepliesFetched: 0,
       comments: [],
-      error: 'Failed to connect to the LearnTrace backend server. Please ensure the server is running.',
+      error: 'Something went wrong',
     };
   }
+}
+
+/** Fetches a persisted result only. It cannot trigger any provider work. */
+export async function getCachedVideoAnalysis(videoId: string): Promise<AnalyzeVideoResponse> {
+  const response = await fetch(`${API_BASE_URL}/data/video/${encodeURIComponent(videoId)}/cached-analysis`);
+  const data = await response.json();
+  if (!response.ok) throw friendlyRequestError(response.status, data.error);
+  return data as AnalyzeVideoResponse;
 }
 
 /** Retrieves persisted BigQuery counts for a previously analyzed video. */
@@ -58,7 +87,7 @@ export async function analyzeLearningSignals(videoId: string): Promise<LearningS
     method: 'POST', headers: { 'Content-Type': 'application/json' },
   });
   const data = await response.json();
-  if (!response.ok) throw new Error(data.error || `Learning-signal analysis failed (${response.status}).`);
+  if (!response.ok) throw new Error(friendlyRequestError(response.status, data.error).title);
   return data as LearningSignalResponse;
 }
 

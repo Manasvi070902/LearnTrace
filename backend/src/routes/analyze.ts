@@ -4,6 +4,15 @@ import { persistAnalysisResult } from '../services/bigquery/bigquery.persistence
 
 const router = Router();
 
+function friendlyYouTubeError(message: string, status?: number): { status: number; error: string } {
+  const value = message.toLowerCase();
+  if (value.includes('invalid youtube video url') || value.includes('invalid "url"')) return { status: 400, error: 'Enter a valid public YouTube video URL.' };
+  if (value.includes('not found') || value.includes('private') || status === 404) return { status: 404, error: "This video isn't available for analysis. Make sure it is public and comments are accessible." };
+  if (value.includes('commentsdisabled') || value.includes('disabled comments')) return { status: 400, error: 'Comments are unavailable for this video.' };
+  if ((status && status >= 500) || value.includes('temporarily unavailable') || value.includes('failed to analyze youtube')) return { status: 503, error: 'YouTube is temporarily unavailable' };
+  return { status: 400, error: 'Enter a valid public YouTube video URL.' };
+}
+
 /**
  * POST /api/analyze/video
  *
@@ -44,16 +53,11 @@ router.post('/video', async (req: Request, res: Response) => {
     });
 
     if (result.status === 'error') {
-      const statusCode = result.error?.includes('Invalid YouTube video URL')
-        ? 400
-        : result.error?.includes('not found')
-        ? 404
-        : result.error?.includes('missing')
-        ? 500
-        : 400;
+      const friendly = friendlyYouTubeError(result.error || '');
 
-      return res.status(statusCode).json({
+      return res.status(friendly.status).json({
         ...result,
+        error: friendly.error,
         youtube: { status: 'error', commentsFetched: 0, repliesFetched: 0 },
         bigquery: { status: 'skipped', reason: 'YouTube fetch failed' },
       });
@@ -124,7 +128,7 @@ router.post('/video', async (req: Request, res: Response) => {
       totalRepliesExpected: 0,
       missingReplies: 0,
       comments: [],
-      error: 'An unexpected internal server error occurred while processing the request.',
+      error: 'Something went wrong',
       youtube: { status: 'error', commentsFetched: 0, repliesFetched: 0 },
       bigquery: { status: 'error', error: 'Request failed before BigQuery persistence.' },
     });

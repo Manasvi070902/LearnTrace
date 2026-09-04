@@ -1,7 +1,23 @@
 import { Router, Request, Response } from 'express';
-import { getVideoStats } from '../services/bigquery/bigquery.retrieval';
+import { getCachedVideoAnalysis, getVideoStats } from '../services/bigquery/bigquery.retrieval';
 
 const router = Router();
+
+const validVideoId = (value: string) => /^[A-Za-z0-9_-]{11}$/.test(value);
+
+/** Read a persisted analysis without invoking YouTube, Gemini, embeddings, or scoring. */
+router.get('/video/:videoId/cached-analysis', async (req: Request, res: Response) => {
+  const videoId = typeof req.params.videoId === 'string' ? req.params.videoId.trim() : '';
+  if (!validVideoId(videoId)) return res.status(400).json({ status: 'error', error: 'Invalid video identifier.' });
+  try {
+    const analysis = await getCachedVideoAnalysis(videoId);
+    if (!analysis) return res.status(404).json({ status: 'error', error: 'Cached analysis is unavailable.' });
+    return res.json(analysis);
+  } catch (error) {
+    console.error(`[Data API] Failed to load cached analysis for '${videoId}':`, error);
+    return res.status(503).json({ status: 'error', error: 'Cached analysis is temporarily unavailable.' });
+  }
+});
 
 /**
  * GET /api/data/video/:videoId/stats

@@ -3,6 +3,8 @@ import { AnalyzeVideoResponse, FrictionResponse } from '../types';
 import { analyzeLearningSignals, getCachedFrictionAnalysis, getCachedLearningSignals } from '../services/api';
 import { ConfusionMapView } from './ConfusionMapView';
 import { LearnTraceIcon } from './LearnTraceIcon';
+import { RequestError, RequestErrorDetails } from './RequestError';
+import { friendlyErrorMessage } from '../services/api';
 
 interface DataInspectionViewProps {
   data: AnalyzeVideoResponse;
@@ -13,7 +15,7 @@ export function DataInspectionView({ data }: DataInspectionViewProps) {
   const [frictionResult, setFrictionResult] = useState<FrictionResponse | null>(null);
   const frictionLoading = false;
   const [expansionLoading, setExpansionLoading] = useState(false);
-  const [expansionError, setExpansionError] = useState<string | null>(null);
+  const [expansionError, setExpansionError] = useState<RequestErrorDetails | null>(null);
   const totalConversations = totalCommentsFetched + totalRepliesFetched;
   const reportedComments = data.youtubeCommentCount;
   const coverage = reportedComments && reportedComments > 0
@@ -65,7 +67,7 @@ export function DataInspectionView({ data }: DataInspectionViewProps) {
         });
       }
     } catch (error) {
-      setExpansionError(error instanceof Error ? error.message : 'Additional AI analysis could not be completed.');
+      setExpansionError(friendlyErrorMessage(error instanceof Error ? error.message : ''));
     } finally {
       setExpansionLoading(false);
     }
@@ -83,17 +85,20 @@ export function DataInspectionView({ data }: DataInspectionViewProps) {
       return isoString;
     }
   };
+  const videoUrl = video && /^[A-Za-z0-9_-]{11}$/.test(video.videoId)
+    ? `https://www.youtube.com/watch?v=${encodeURIComponent(video.videoId)}`
+    : undefined;
 
   return (
     <div className="inspection-view-container">
       {video && <section className="creator-video-hero">
         <div className="creator-video-main">
-          {video.thumbnailUrl && <div className="video-thumbnail-frame">
+          {video.thumbnailUrl && <a className="video-thumbnail-frame video-source-link" href={videoUrl} target="_blank" rel="noopener noreferrer" aria-label={`Open ${video.title} on YouTube`}>
             <img src={video.thumbnailUrl} alt={video.title} className="video-thumbnail" />
             <span className="thumbnail-play" aria-hidden="true"><LearnTraceIcon name="play" size={22} /></span>
-          </div>}
+          </a>}
           <div className="video-meta-info creator-video-info">
-            <h2 className="video-title">{video.title}</h2>
+            <h2 className="video-title"><a className="video-source-link title-source-link" href={videoUrl} target="_blank" rel="noopener noreferrer">{video.title}<span aria-hidden="true"> ↗</span></a></h2>
             <div className="video-meta-details">
               <span className="channel-name">{video.channelTitle}</span>
               <span className="published-date">Published {formatDate(video.publishedAt)}</span>
@@ -118,7 +123,7 @@ export function DataInspectionView({ data }: DataInspectionViewProps) {
         </aside>
       </section>}
 
-      {expansionError && <div className="notice-banner error-banner">{expansionError}</div>}
+      {expansionError && <RequestError error={expansionError} onRetry={() => void analyzeMoreConversations()} />}
       {frictionResult?.report && (
         <ConfusionMapView videoId={video!.videoId} report={frictionResult.report} confusionMap={frictionResult.confusionMap || []} />
       )}

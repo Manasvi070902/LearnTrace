@@ -10,6 +10,17 @@ const activeVideos = new Set<string>();
 let activeAnalysis = false;
 let lastRequestAt = 0;
 
+function normalizeAiFailure(error: unknown): { status: number; error: string } {
+  const message = error instanceof Error ? error.message : String(error || '');
+  if (/503|unavailable|high demand|temporary service/i.test(message)) {
+    return { status: 503, error: 'AI is temporarily busy' };
+  }
+  if (/429|resource.?exhausted|rate limit/i.test(message)) {
+    return { status: 429, error: 'AI request temporarily unavailable' };
+  }
+  return { status: 500, error: 'Something went wrong' };
+}
+
 export interface SourceComment { comment_id: string; comment_text: string; is_reply: boolean; like_count: number; published_at: string; }
 
 export interface AnalysisCoveragePlan {
@@ -140,9 +151,8 @@ router.post('/video/:videoId/learning-signals', async (req: Request, res: Respon
     activeVideos.delete(videoId);
     activeAnalysis = false;
     console.error(`[Learning Signals] Analysis failed for '${videoId}':`, error);
-    const message = error instanceof Error ? error.message : 'Learning-signal analysis failed.';
-    const quotaFailure = /quota|billing credits|exhausted/i.test(message);
-    return res.status(message.includes('GEMINI_API_KEY') || quotaFailure ? 503 : 500).json({ status: 'error', error: message });
+    const failure = normalizeAiFailure(error);
+    return res.status(failure.status).json({ status: 'error', error: failure.error });
   }
 });
 
@@ -160,8 +170,7 @@ router.get('/video/:videoId/learning-signals', async (req: Request, res: Respons
       analyses,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Could not retrieve cached learning signals.';
-    return res.status(500).json({ status: 'error', error: message });
+    return res.status(500).json({ status: 'error', error: 'Something went wrong' });
   }
 });
 

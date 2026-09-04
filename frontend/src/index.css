@@ -354,6 +354,10 @@ body::before {
   font-size: 1.1rem;
 }
 
+.request-error { margin: 0 0 20px; padding: 13px 16px; display: flex; align-items: center; gap: 12px; border: 1px solid var(--color-error-border); border-radius: var(--lt-radius-sm); background: var(--color-error-bg); color: var(--color-error-text); font-size: var(--lt-text-body); }.request-error-icon { display: grid; place-items: center; flex: 0 0 20px; width: 20px; height: 20px; border: 1px solid currentColor; border-radius: 50%; font-weight: 700; }.request-error strong { display: block; }.request-error p { margin: 1px 0 0; color: var(--lt-text-secondary); font-size: var(--lt-text-meta); }.request-error button { margin-left: auto; border: 1px solid rgba(252, 165, 165, .45); border-radius: 6px; padding: 6px 10px; background: transparent; color: inherit; cursor: pointer; white-space: nowrap; }.request-error button:hover { background: rgba(252, 165, 165, .1); }
+.demo-section { margin: 8px 0 25px; padding-top: 22px; border-top: 1px solid rgba(148, 163, 184, .13); }.demo-section h2 { color: var(--lt-text); font-size: 1rem; margin: 0 0 2px; }.demo-section > p { color: var(--lt-text-muted); font-size: var(--lt-text-meta); margin: 0 0 12px; }.demo-card { width: 100%; display: grid; grid-template-columns: 152px minmax(0, 1fr) auto; align-items: center; gap: 15px; padding: 10px; text-align: left; color: var(--lt-text); border: 1px solid var(--lt-border); border-radius: var(--lt-radius-md); background: rgba(10, 22, 40, .7); cursor: pointer; transition: .2s ease; }.demo-card:hover:not(:disabled) { border-color: var(--lt-border-strong); background: var(--lt-surface-hover); transform: translateY(-1px); }.demo-card:disabled { cursor: wait; opacity: .7; }.demo-card img { width: 152px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 8px; }.demo-card-copy { display: grid; gap: 2px; }.demo-card-copy strong { font-size: 1rem; }.demo-card-copy em { color: var(--lt-primary); font-size: var(--lt-text-meta); font-style: normal; }.demo-card-copy small { margin-top: 8px; color: var(--lt-text-secondary); line-height: 1.4; }.demo-card-cta { color: var(--lt-primary); font-size: var(--lt-text-meta); font-weight: 650; white-space: nowrap; }.demo-caption { display: block; margin-top: 8px; color: var(--lt-text-muted); font-size: .73rem; }
+.video-source-link { color: inherit; text-decoration: none; }.video-thumbnail-frame.video-source-link { display: block; }.video-source-link:hover .video-thumbnail { filter: brightness(1.08); }.title-source-link span { color: var(--lt-text-muted); font-size: .72em; opacity: .6; transition: opacity .18s ease, color .18s ease; }.title-source-link:hover { color: var(--lt-primary); }.title-source-link:hover span { color: var(--lt-primary); opacity: 1; }.title-source-link:focus-visible, .video-thumbnail-frame.video-source-link:focus-visible { outline: 2px solid var(--lt-primary); outline-offset: 3px; border-radius: var(--lt-radius-sm); }
+
 /* Feature Badges Row (Left Aligned) */
 .features-badges {
   display: flex;
@@ -1314,3 +1318,35 @@ body::before {
 .response-filter button { font: inherit; font-size: 14px; font-weight: 650; letter-spacing: -.01em; }
 .response-filter button b { font-weight: 750; }
 @media (min-width: 641px) { .insight-drawer-backdrop { pointer-events: none; } }
+
+/* Small utility controls in detail panels. */
+.category-panel-close,
+.response-complete .text-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  border: 1px solid rgba(102, 153, 188, .34);
+  border-radius: 7px;
+  background: rgba(12, 38, 60, .46);
+  color: #9dcff0;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1;
+  letter-spacing: .01em;
+  transition: border-color .16s ease, background .16s ease, color .16s ease;
+}
+
+.category-panel-close:hover,
+.response-complete .text-button:hover {
+  border-color: rgba(112, 194, 239, .7);
+  background: rgba(21, 66, 96, .72);
+  color: #d4eeff;
+}
+
+.response-complete .text-button {
+  margin-top: 5px;
+}
