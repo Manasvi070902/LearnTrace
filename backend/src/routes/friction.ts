@@ -19,7 +19,7 @@ import { PROMPT_VERSION } from '../prompts/comment-analysis.prompt';
 import { getConfiguredGeminiModel } from '../services/gemini/comment-analysis.service';
 import { buildCreatorReplyAssessmentPrompt, buildCreatorReplyContexts, buildResponseWorkflowItems, buildDraftPrompt, creatorReplyAssessmentFingerprint, draftContextFingerprint, newDraftId, RESPONSE_CONTEXT_VERSION, ResponseDraftMode, ResponseWorkflowItem, validateCreatorReplyAssessment, validateDraft } from '../services/response-workflow/response-workflow.service';
 import { getCachedCreatorReplyAssessment, getCachedDraftContextKeys, getCachedResponseDraft, getCreatorReplyAssessmentUsageToday, getResponseDraftUsageToday, getWorkflowStates, markWorkflowCreatorReplyAnswered, setWorkflowResolution, storeCreatorReplyAssessment, storeResponseDraft, upsertWorkflowItems } from '../services/bigquery/bigquery.response-workflow';
-import { getDailyAnalysisUsage } from '../services/bigquery/bigquery.analysis';
+import { getResponseModel, withReasoningFallback } from '../services/gemini/model-policy';
 
 const router = Router();
 
@@ -58,11 +58,10 @@ async function getWorkflowItems(videoId: string): Promise<ResponseWorkflowItem[]
 async function generateResponseDraft(item: ResponseWorkflowItem, mode: ResponseDraftMode): Promise<{ text: string; model: string }> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('GEMINI_API_KEY is not configured on the server.');
-  const model = process.env.GEMINI_RESPONSE_MODEL?.trim() || getConfiguredDiagnosisModel();
   const { GoogleGenAI } = await import('@google/genai');
   const ai = new GoogleGenAI({ apiKey });
-  const response = await ai.models.generateContent({ model, contents: buildDraftPrompt(item, mode, item.phase6Interpretation), config: { temperature: 0.3 } });
-  return { text: validateDraft(response.text || ''), model };
+  const generated = await withReasoningFallback((model) => ai.models.generateContent({ model, contents: buildDraftPrompt(item, mode, item.phase6Interpretation), config: { temperature: 0.3 } }), getResponseModel());
+  return { text: validateDraft(generated.value.text || ''), model: generated.model };
 }
 
 function parseJsonResponse(text: string, description: string): unknown {
@@ -74,11 +73,10 @@ async function assessCreatorReply(item: ResponseWorkflowItem): Promise<{ outcome
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('GEMINI_API_KEY is not configured on the server.');
   if (!item.creatorReplyText?.trim()) throw new Error('No creator reply is available to assess.');
-  const model = process.env.GEMINI_RESPONSE_MODEL?.trim() || getConfiguredDiagnosisModel();
   const { GoogleGenAI } = await import('@google/genai');
   const ai = new GoogleGenAI({ apiKey });
-  const response = await ai.models.generateContent({ model, contents: buildCreatorReplyAssessmentPrompt(item), config: { responseMimeType: 'application/json', temperature: 0 } });
-  return { ...validateCreatorReplyAssessment(parseJsonResponse(response.text || '', 'reply assessment')), model };
+  const generated = await withReasoningFallback((model) => ai.models.generateContent({ model, contents: buildCreatorReplyAssessmentPrompt(item), config: { responseMimeType: 'application/json', temperature: 0 } }), getResponseModel());
+  return { ...validateCreatorReplyAssessment(parseJsonResponse(generated.value.text || '', 'reply assessment')), model: generated.model };
 }
 
 function safeAiError(error: unknown, fallback: string): string {
@@ -281,8 +279,8 @@ router.post('/video/:videoId/concepts/:concept/diagnosis', async (req: Request, 
     const modelName = getConfiguredDiagnosisModel();
     const cached = await getCachedDiagnosis(videoId, concept, modelName, fingerprint);
     if (cached) return res.json({ status: 'success', eligible: true, cached: true, interpretation: cached, evidence: packet });
-    const interpretation = await generateAiInterpretation(packet);
-    const row = { ...interpretation, video_id: videoId, concept, concept_key: concept, learning_friction_score: context.score.learning_friction_score!, friction_level: context.score.friction_level, evidence_fingerprint: fingerprint, model_name: modelName, diagnosis_version: PHASE6_DIAGNOSIS_VERSION, created_at: new Date().toISOString() };
+    const generated = await generateAiInterpretation(packet);
+    const row = { ...generated.interpretation, video_id: videoId, concept, concept_key: concept, learning_friction_score: context.score.learning_friction_score!, friction_level: context.score.friction_level, evidence_fingerprint: fingerprint, model_name: generated.model, diagnosis_version: PHASE6_DIAGNOSIS_VERSION, created_at: new Date().toISOString() };
     await storeDiagnosis(row);
     return res.json({ status: 'success', eligible: true, cached: false, interpretation: row, evidence: packet });
   } catch {
@@ -432,9 +430,9 @@ router.post('/video/:videoId/response-workflow/:workflowId/draft', async (req: R
       const cached = await getCachedResponseDraft(videoId, workflowId, contextVersion);
       if (cached) return res.json({ status: 'success', cached: true, draft: cached });
     }
-    const [usage, draftUsage] = await Promise.all([getDailyAnalysisUsage(), getResponseDraftUsageToday()]);
-    const limit = Number(process.env.GEMINI_MAX_REQUESTS_PER_DAY || 10);
-    if (usage.requestsToday + draftUsage >= limit) return res.status(429).json({ status: 'error', error: 'The configured daily AI request limit has been reached.' });
+    const draftUsage = await getResponseDraftUsageToday();
+    const limit = Number(process.env.GEMINI_REASONING_MAX_REQUESTS_PER_DAY || process.env.GEMINI_MAX_REQUESTS_PER_DAY || 1200);
+    if (draftUsage >= limit) return res.status(429).json({ status: 'error', error: "Today's AI analysis allowance has been reached." });
     const generated = await generateResponseDraft(item, mode);
     const draft = { draft_id: newDraftId(), workflow_id: workflowId, video_id: videoId, context_version: contextVersion, draft_text: generated.text, model_name: generated.model, created_at: new Date().toISOString() };
     await storeResponseDraft(draft);
@@ -453,9 +451,9 @@ router.post('/video/:videoId/response-workflow/:workflowId/creator-reply-check',
     const contextVersion = creatorReplyAssessmentFingerprint(item);
     const cached = await getCachedCreatorReplyAssessment(videoId, workflowId, contextVersion);
     if (cached) return res.json({ status: 'success', cached: true, assessment: cached });
-    const [usage, draftUsage, checkUsage] = await Promise.all([getDailyAnalysisUsage(), getResponseDraftUsageToday(), getCreatorReplyAssessmentUsageToday()]);
-    const limit = Number(process.env.GEMINI_MAX_REQUESTS_PER_DAY || 10);
-    if (usage.requestsToday + draftUsage + checkUsage >= limit) return res.status(429).json({ status: 'error', error: 'The configured daily AI request limit has been reached.' });
+    const [draftUsage, checkUsage] = await Promise.all([getResponseDraftUsageToday(), getCreatorReplyAssessmentUsageToday()]);
+    const limit = Number(process.env.GEMINI_REASONING_MAX_REQUESTS_PER_DAY || process.env.GEMINI_MAX_REQUESTS_PER_DAY || 1200);
+    if (draftUsage + checkUsage >= limit) return res.status(429).json({ status: 'error', error: "Today's AI analysis allowance has been reached." });
     const assessment = await assessCreatorReply(item);
     const stored = { workflow_id: workflowId, video_id: videoId, context_version: contextVersion, outcome: assessment.outcome, confidence: assessment.confidence, reason: assessment.reason, model_name: assessment.model, created_at: new Date().toISOString() };
     await storeCreatorReplyAssessment(stored);

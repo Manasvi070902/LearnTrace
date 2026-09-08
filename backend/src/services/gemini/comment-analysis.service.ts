@@ -1,9 +1,10 @@
 import { COMMENT_ANALYSIS_PROMPT, PROMPT_VERSION } from '../../prompts/comment-analysis.prompt';
+import { DEFAULT_CLASSIFICATION_MODEL, getClassificationModel } from './model-policy';
 
-export const DEFAULT_GEMINI_MODEL = 'gemini-3.6-flash';
+export const DEFAULT_GEMINI_MODEL = DEFAULT_CLASSIFICATION_MODEL;
 export const GEMINI_BATCH_SIZE = 50;
 const MAX_BATCH_PAYLOAD_BYTES = 120_000;
-export function getConfiguredGeminiModel(): string { return process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL; }
+export function getConfiguredGeminiModel(): string { return getClassificationModel(); }
 export const INTENTS = [
   'conceptual_confusion', 'learning_question', 'technical_error', 'content_request',
   'disagreement', 'feedback', 'praise', 'noise', 'other',

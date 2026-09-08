@@ -31,21 +31,24 @@ export interface AnalysisCoveragePlan {
   selected: SourceComment[];
 }
 
-function getTargetAnalyzedConversations(): number {
-  return Math.max(0, Math.floor(Number(process.env.GEMINI_TARGET_ANALYZED_CONVERSATIONS || 200)));
+function getAnalysisBatchSize(): number {
+  // Each explicit "Analyze more" click processes one bounded increment. This
+  // lets creators progressively cover long comment threads without a fixed
+  // lifetime ceiling such as the previous 200-conversation target.
+  return Math.max(1, Math.floor(Number(process.env.GEMINI_ANALYZE_MORE_BATCH_SIZE || process.env.GEMINI_TARGET_ANALYZED_CONVERSATIONS || 100)));
 }
 
 export function buildAnalysisCoveragePlan(
   comments: SourceComment[],
   analyzedCommentIds: Set<string>,
-  targetAnalyzed = getTargetAnalyzedConversations()
+  batchSize = getAnalysisBatchSize()
 ): AnalysisCoveragePlan {
   const unanalyzed = comments.filter((comment) => !analyzedCommentIds.has(comment.comment_id));
-  const newConversationsRequired = Math.max(0, targetAnalyzed - analyzedCommentIds.size);
+  const newConversationsRequired = Math.min(batchSize, unanalyzed.length);
   return {
     availableConversations: comments.length,
     alreadyAnalyzed: analyzedCommentIds.size,
-    targetAnalyzed,
+    targetAnalyzed: analyzedCommentIds.size + newConversationsRequired,
     newConversationsRequired,
     selected: selectFromBuckets(unanalyzed, Math.min(newConversationsRequired, unanalyzed.length)),
   };
@@ -88,7 +91,7 @@ router.post('/video/:videoId/learning-signals', async (req: Request, res: Respon
     const pending = selected;
     const requests = splitCommentBatches(pending.map((comment) => ({ commentId: comment.comment_id, text: comment.comment_text })), Number(process.env.GEMINI_BATCH_SIZE || GEMINI_BATCH_SIZE)).length;
     const usage = await getDailyAnalysisUsage();
-    const dailyRequestLimit = Math.max(0, Number(process.env.GEMINI_MAX_REQUESTS_PER_DAY || 10));
+    const dailyRequestLimit = Math.max(0, Number(process.env.GEMINI_CLASSIFICATION_MAX_REQUESTS_PER_DAY || process.env.GEMINI_MAX_REQUESTS_PER_DAY || 1200));
     if (requests > Math.max(0, dailyRequestLimit - usage.requestsToday)) {
       activeVideos.delete(videoId); activeAnalysis = false;
       return res.status(429).json({ status: 'error', error: 'Additional AI analysis could not be completed because the configured development AI limit was reached.' });
@@ -177,7 +180,7 @@ router.get('/video/:videoId/learning-signals', async (req: Request, res: Respons
 router.get('/usage', async (_req: Request, res: Response) => {
   try {
     const usage = await getDailyAnalysisUsage();
-    return res.json({ ...usage, configuredDailyLimit: Number(process.env.GEMINI_MAX_REQUESTS_PER_DAY || 10) });
+    return res.json({ ...usage, configuredDailyLimit: Number(process.env.GEMINI_CLASSIFICATION_MAX_REQUESTS_PER_DAY || process.env.GEMINI_MAX_REQUESTS_PER_DAY || 1200) });
   } catch {
     return res.status(500).json({ status: 'error', error: 'Unable to retrieve development AI usage.' });
   }

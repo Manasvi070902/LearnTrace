@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { FrictionRow } from '../bigquery/bigquery.friction';
 import { ClusterEvidenceRow, ClusterRow } from '../bigquery/bigquery.friction';
-import { getConfiguredGeminiModel } from '../gemini/comment-analysis.service';
+import { getReasoningModel, withReasoningFallback } from '../gemini/model-policy';
 import { getMinSignalsForFrictionScore } from '../friction/friction-scoring.service';
 
 export const PHASE6_DIAGNOSIS_VERSION = 'v1';
@@ -106,20 +106,19 @@ export function buildInterpretationPrompt(packet: InterpretationPacket): string 
 }
 
 export function getConfiguredDiagnosisModel(): string {
-  return process.env.GEMINI_DIAGNOSIS_MODEL?.trim() || getConfiguredGeminiModel();
+  return getReasoningModel();
 }
 
-export async function generateAiInterpretation(packet: InterpretationPacket): Promise<AiInterpretation> {
+export async function generateAiInterpretation(packet: InterpretationPacket): Promise<{ interpretation: AiInterpretation; model: string }> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('GEMINI_API_KEY is not configured on the server.');
   const { GoogleGenAI } = await import('@google/genai');
   const ai = new GoogleGenAI({ apiKey });
-  const response = await ai.models.generateContent({
-    model: getConfiguredDiagnosisModel(), contents: buildInterpretationPrompt(packet),
-    config: { responseMimeType: 'application/json', temperature: 0 },
-  });
+  const generated = await withReasoningFallback((model) => ai.models.generateContent({
+    model, contents: buildInterpretationPrompt(packet), config: { responseMimeType: 'application/json', temperature: 0 },
+  }), getReasoningModel());
   let parsed: unknown;
-  try { parsed = JSON.parse((response.text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')); }
+  try { parsed = JSON.parse((generated.value.text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')); }
   catch { throw new Error('Gemini returned malformed interpretation JSON.'); }
-  return validateAiInterpretation(parsed, packet.evidenceClusters.map((cluster) => cluster.clusterId));
+  return { interpretation: validateAiInterpretation(parsed, packet.evidenceClusters.map((cluster) => cluster.clusterId)), model: generated.model };
 }

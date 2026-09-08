@@ -35,23 +35,19 @@ interface CategoryDefinition {
 
 const categories: CategoryDefinition[] = [
   { key: 'learning', label: 'Learning', icon: 'learning', heading: 'What are learners asking?', description: 'Questions and difficulties learners raised while following the lesson.', cta: 'Explore', countLabel: () => 'learner questions', actions: (data) => data.learningInsights || [], count: (data) => data.audienceOverview?.learning || 0, secondary: (data) => `${data.audienceOverview?.recurringLearningQuestions || 0} repeated` },
-  { key: 'technical', label: 'Code & Setup', icon: 'technical', heading: 'Code & Setup', description: 'Problems learners reported while trying to follow or run the example.', cta: 'Explore', countLabel: () => 'reported issues', actions: (data) => data.technicalBarriers || [], count: (data) => data.audienceOverview?.technical || 0 },
-  { key: 'curriculum_navigation', label: 'Course & Learning Path', icon: 'path', heading: 'Questions about the course', description: 'Questions about prerequisites, sequence, scope, and what to learn next.', cta: 'Explore', countLabel: () => 'learner questions', actions: (data) => data.curriculumNavigation || [], count: (data) => data.audienceOverview?.curriculum_navigation || 0 },
-  { key: 'content_opportunity', label: 'Content Requests', icon: 'content', heading: 'What do learners want next?', description: 'Requested future coverage and follow-up material.', cta: 'Explore', countLabel: () => 'things learners want', actions: (data) => data.contentOpportunities || [], count: (data) => data.audienceOverview?.content_opportunity || 0, secondary: (data) => categoryTopicSummary(data.contentOpportunities || [], 'trending') },
-  { key: 'actionable_feedback', label: 'Video Feedback', icon: 'feedback', heading: 'What could be improved?', description: 'Common suggestions about the explanation, presentation, examples, or video experience.', cta: 'Explore', countLabel: () => 'useful suggestions', actions: (data) => data.improvementOpportunities || [], count: (data) => data.audienceOverview?.actionable_feedback || 0, secondary: (data) => repeatedThemeSummary(data.improvementOpportunities || []) },
+  { key: 'technical', label: 'Code & Setup', icon: 'technical', heading: 'Code & Setup', description: 'Problems learners reported while trying to follow or run the example.', cta: 'Explore', countLabel: () => 'reported issues', actions: (data) => data.technicalBarriers || [], count: (data) => data.audienceOverview?.technical || 0, secondary: (data) => signalThemeSummary(data.technicalBarriers || [], 'report', 'issue') },
+  { key: 'curriculum_navigation', label: 'Course & Learning Path', icon: 'path', heading: 'Questions about the course', description: 'Questions about prerequisites, sequence, scope, and what to learn next.', cta: 'Explore', countLabel: () => 'learner questions', actions: (data) => data.curriculumNavigation || [], count: (data) => data.audienceOverview?.curriculum_navigation || 0, secondary: (data) => signalThemeSummary(data.curriculumNavigation || [], 'question', 'guidance theme') },
+  { key: 'content_opportunity', label: 'Content Requests', icon: 'content', heading: 'What do learners want next?', description: 'Requested future coverage and follow-up material.', cta: 'Explore', countLabel: () => 'things learners want', actions: (data) => data.contentOpportunities || [], count: (data) => data.audienceOverview?.content_opportunity || 0, secondary: (data) => signalThemeSummary(data.contentOpportunities || [], 'request', 'topic') },
+  { key: 'actionable_feedback', label: 'Video Feedback', icon: 'feedback', heading: 'What could be improved?', description: 'Common suggestions about the explanation, presentation, examples, or video experience.', cta: 'Explore', countLabel: () => 'useful suggestions', actions: (data) => data.improvementOpportunities || [], count: (data) => data.audienceOverview?.actionable_feedback || 0, secondary: (data) => signalThemeSummary(data.improvementOpportunities || [], 'suggestion', 'feedback theme') },
   { key: 'positive_signal', label: 'What Worked', icon: 'positive', heading: 'What worked well?', description: 'Specific teaching approaches learners responded to positively.', cta: 'Explore', countLabel: () => 'positive comments', actions: (data) => data.positiveSignals || [], count: (data) => data.audienceOverview?.positive_signal || 0, secondary: (data) => specificThemeSummary(data.positiveSignals || []) },
 ];
 
-function categoryTopicSummary(actions: CreatorAction[], prefix: string): string | null {
-  const strongest = [...actions].sort((a, b) => b.supportingSignalCount - a.supportingSignalCount)[0];
-  if (!strongest) return null;
-  const topic = actionLabel(strongest).toLowerCase();
-  return prefix === 'trending' ? `${strongest.supportingSignalCount} trending` : `${prefix} ${topic}`;
-}
-
-function repeatedThemeSummary(actions: CreatorAction[]): string | null {
-  const repeated = actions.filter((action) => action.supportingSignalCount >= 2).length;
-  return repeated ? `${repeated} repeated` : null;
+/** A compact secondary metric built only from stored grouped audience signals. */
+function signalThemeSummary(actions: CreatorAction[], signal: string, theme: string): string | null {
+  if (!actions.length) return null;
+  const signals = actions.reduce((total, action) => total + action.supportingSignalCount, 0);
+  const plural = (count: number, label: string) => `${count} ${label}${count === 1 ? '' : 's'}`;
+  return `${plural(signals, signal)} · ${plural(actions.length, theme)}`;
 }
 
 function specificThemeSummary(actions: CreatorAction[]): string | null {

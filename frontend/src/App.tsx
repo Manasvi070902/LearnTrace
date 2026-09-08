@@ -4,6 +4,7 @@ import { AnalyzeVideoResponse } from './types';
 import { DataInspectionView } from './components/DataInspectionView';
 import { RequestError, RequestErrorDetails } from './components/RequestError';
 import { ChannelOverview } from './components/ChannelOverview';
+import { BrandMark } from './components/BrandMark';
 
 const DEMO_VIDEO_ID = 'PFDu9oVAE-g';
 const DEMO_THUMBNAIL = `https://i.ytimg.com/vi/${DEMO_VIDEO_ID}/hqdefault.jpg`;
@@ -28,6 +29,10 @@ export default function App() {
     setError(null);
 
     try {
+      if (!isYouTubeUrl(url.trim())) {
+        setError({ title: 'Enter a valid YouTube video or channel URL.', message: 'LearnTrace supports public YouTube links only.' });
+        return;
+      }
       if (!isYouTubeVideoUrl(url.trim())) {
         const channel = await resolveChannel(url.trim());
         setChannelId(channel.channelId);
@@ -75,6 +80,7 @@ export default function App() {
   };
 
   const openAnalysis = (data: AnalyzeVideoResponse, openedFromChannel = false) => { setAnalysisResult(data); setChannelId(null); setFromChannel(openedFromChannel); };
+  const openChannelAnalysis = (nextChannelId: string) => { setAnalysisResult(null); setChannelId(nextChannelId); setFromChannel(false); window.history.pushState({}, '', `/channel/${nextChannelId}`); };
   const analyzeFromChannel = async (videoUrl: string) => {
     setChannelId(null); setFromChannel(false); setUrl(videoUrl); setLoading(true); setError(null); window.history.pushState({}, '', '/');
     try {
@@ -100,6 +106,7 @@ if (trace.gapDetected) { renderHeatmap(); updateMetrics(); }`}
 
       <header className="header">
         <div className="brand-logo" onClick={handleReset} style={{ cursor: 'pointer' }}>
+          <BrandMark />
           LearnTrace
         </div>
         {analysisResult
@@ -109,7 +116,7 @@ if (trace.gapDetected) { renderHeatmap(); updateMetrics(); }`}
 
       <main className="main-content">
         {analysisResult ? (
-          <DataInspectionView data={analysisResult} />
+          <DataInspectionView data={analysisResult} onOpenChannel={openChannelAnalysis} />
         ) : channelId ? (
           <ChannelOverview channelId={channelId} onBack={handleReset} onOpenAnalysis={openAnalysis} onAnalyze={analyzeFromChannel} />
         ) : (
@@ -125,7 +132,7 @@ if (trace.gapDetected) { renderHeatmap(); updateMetrics(); }`}
                 type="text"
                 id="youtube-url-input"
                 className="url-input"
-                placeholder="Paste a YouTube video URL"
+                placeholder="Enter your YouTube video link or channel"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 disabled={loading}
@@ -212,5 +219,13 @@ function isYouTubeVideoUrl(value: string): boolean {
     if (host === 'youtu.be') return /^[A-Za-z0-9_-]{11}$/.test(segments[0] || '');
     if (!['youtube.com', 'm.youtube.com', 'music.youtube.com'].includes(host)) return false;
     return (url.pathname === '/watch' && /^[A-Za-z0-9_-]{11}$/.test(url.searchParams.get('v') || '')) || ['embed', 'v', 'shorts'].includes(segments[0]) && /^[A-Za-z0-9_-]{11}$/.test(segments[1] || '');
+  } catch { return false; }
+}
+
+function isYouTubeUrl(value: string): boolean {
+  try {
+    let candidate = value.trim(); if (!/^https?:\/\//i.test(candidate)) candidate = `https://${candidate}`;
+    const hostname = new URL(candidate).hostname.toLowerCase().replace(/^www\./, '');
+    return ['youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtu.be'].includes(hostname);
   } catch { return false; }
 }

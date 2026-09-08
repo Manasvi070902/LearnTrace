@@ -8,9 +8,10 @@ import { friendlyErrorMessage } from '../services/api';
 
 interface DataInspectionViewProps {
   data: AnalyzeVideoResponse;
+  onOpenChannel?: (channelId: string) => void;
 }
 
-export function DataInspectionView({ data }: DataInspectionViewProps) {
+export function DataInspectionView({ data, onOpenChannel }: DataInspectionViewProps) {
   const { video, totalCommentsFetched, totalRepliesFetched, comments, commentsDisabled } = data;
   const [frictionResult, setFrictionResult] = useState<FrictionResponse | null>(null);
   const frictionLoading = false;
@@ -88,6 +89,7 @@ export function DataInspectionView({ data }: DataInspectionViewProps) {
   const videoUrl = video && /^[A-Za-z0-9_-]{11}$/.test(video.videoId)
     ? `https://www.youtube.com/watch?v=${encodeURIComponent(video.videoId)}`
     : undefined;
+  const hasChannelLink = Boolean(video?.channelId && /^UC[A-Za-z0-9_-]{22}$/.test(video.channelId) && onOpenChannel);
 
   return (
     <div className="inspection-view-container">
@@ -100,7 +102,7 @@ export function DataInspectionView({ data }: DataInspectionViewProps) {
           <div className="video-meta-info creator-video-info">
             <h2 className="video-title"><a className="video-source-link title-source-link" href={videoUrl} target="_blank" rel="noopener noreferrer">{video.title}<span aria-hidden="true"> ↗</span></a></h2>
             <div className="video-meta-details">
-              <span className="channel-name">{video.channelTitle}</span>
+              {hasChannelLink ? <button type="button" className="channel-analysis-link" onClick={() => onOpenChannel!(video!.channelId)}>{video.channelTitle}<span aria-hidden="true"> Explore channel →</span></button> : <span className="channel-name">{video.channelTitle}</span>}
               <span className="published-date">Published {formatDate(video.publishedAt)}</span>
               {video.viewCount && (
                 <span className="view-count">{Number(video.viewCount).toLocaleString()} views</span>
@@ -118,7 +120,7 @@ export function DataInspectionView({ data }: DataInspectionViewProps) {
         <aside className="audience-status">
           <span className="audience-status-kicker"><LearnTraceIcon name="sparkles" size={16} /> Audience analysis</span>
           {frictionResult?.report ? <><strong>Audience insights ready</strong><p>{frictionResult.report.aiAnalyzedComments.toLocaleString()} of {totalConversations.toLocaleString()} conversations analyzed</p><div className="analysis-progress-row"><div className="analysis-progress"><span style={{ width: `${totalConversations ? Math.min(100, (frictionResult.report.aiAnalyzedComments / totalConversations) * 100) : 0}%` }} /></div><small>{totalConversations ? ((frictionResult.report.aiAnalyzedComments / totalConversations) * 100).toFixed(1) : '0.0'}%</small></div></> : <><strong>Ready to understand your audience</strong><p>Analyze conversations to uncover learner questions, repeated difficulties, requests, and feedback.</p></>}
-          <button className="conversations-toggle audience-analyze-button" onClick={analyzeMoreConversations} disabled={frictionLoading || expansionLoading || !video}><LearnTraceIcon name="refresh" size={17} /> {expansionLoading ? 'Analyzing audience…' : frictionResult?.report ? 'Analyze more comments' : 'Analyze audience'}</button>
+          <button className="conversations-toggle audience-analyze-button" onClick={analyzeMoreConversations} disabled={frictionLoading || expansionLoading || !video || Boolean(frictionResult?.report && frictionResult.report.aiAnalyzedComments >= totalConversations)}><LearnTraceIcon name="refresh" size={17} /> {expansionLoading ? 'Analyzing audience…' : frictionResult?.report && frictionResult.report.aiAnalyzedComments >= totalConversations ? 'All available conversations analyzed' : frictionResult?.report ? 'Analyze 100 more comments' : 'Analyze 100 comments'}</button>
           {frictionResult?.report && <small>Get a broader view of your audience.</small>}
         </aside>
       </section>}
