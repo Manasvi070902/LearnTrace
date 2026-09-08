@@ -1352,3 +1352,5 @@ body::before {
 .response-complete .text-button {
   margin-top: 5px;
 }
+ .catalog-scope { color: var(--lt-text-muted); font-size: var(--lt-text-meta); margin: 4px 0 10px; }
+.stored-channel-videos { display: grid; gap: 9px; margin: 14px 0 20px; padding-bottom: 18px; border-bottom: 1px solid rgba(148, 163, 184, .13); }.stored-channel-videos h3 { font-size: 1rem; color: var(--lt-text); }.stored-channel-videos > p { color: var(--lt-text-muted); font-size: var(--lt-text-meta); }.page-controls { display: flex; justify-content: center; gap: 10px; }.page-controls .load-more { margin: 18px 0 0; }.page-controls .load-more:disabled { opacity: .5; cursor: not-allowed; }

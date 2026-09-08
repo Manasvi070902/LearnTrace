@@ -256,7 +256,7 @@ export interface CreatorReplyContext { sourceInsightId: string; commentId: strin
 export interface ChannelMetadata { channelId: string; title: string; handle?: string; description?: string; thumbnailUrl?: string; subscriberCount?: string; videoCount?: string; }
 export interface ChannelVideoInsight { videoId: string; analyzed: boolean; conversations: number; learningPatterns: number; needsResponse: number; }
 export interface ChannelVideo { videoId: string; title: string; thumbnailUrl?: string; publishedAt: string; channelTitle: string; viewCount?: string; commentCount?: string; insight: ChannelVideoInsight; }
-export interface ChannelCatalogResponse { videos: ChannelVideo[]; nextPageToken?: string; overview: { analyzedVideos: number; cards: Array<{ key: string; label: string; value: number }> }; concepts: Array<{ concept: string; videos: number; learners: number }>; }
+export interface ChannelCatalogResponse { videos: ChannelVideo[]; storedVideos: ChannelVideo[]; nextPageToken?: string; overview: { analyzedVideos: number; cards: Array<{ key: string; label: string; value: number }> }; concepts: Array<{ concept: string; videos: number; learners: number }>; }
 
 export type ResponseWorkflowStatus = 'needs_response' | 'resolved' | 'community_answered' | 'unclear';
 export type ResponseDraftMode = 'individual_reply' | 'public_clarification' | 'technical_fix' | 'learning_path_guidance' | 'request_acknowledgement' | 'feedback_acknowledgement';

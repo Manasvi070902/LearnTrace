@@ -11,6 +11,22 @@ export async function getChannelOverview(channelId: string) {
   });
   return getChannelInsights((rows || []).map((row: { video_id: string }) => row.video_id));
 }
+
+/** Stored video identities for immediate access when they fall outside the current YouTube page. */
+export async function getStoredChannelVideos(channelId: string) {
+  const [rows] = await getBigQueryClient().query({
+    query: `SELECT video_id, title, channel_title, CAST(published_at AS STRING) AS published_at, CAST(view_count AS STRING) AS view_count FROM \`${process.env.GOOGLE_CLOUD_PROJECT_ID}.${process.env.BIGQUERY_DATASET}.${TABLE_NAMES.VIDEOS}\` WHERE channel_id = @channel_id ORDER BY analyzed_at DESC`,
+    params: { channel_id: channelId }, location: process.env.BIGQUERY_LOCATION,
+  });
+  const ids = (rows || []).map((row: { video_id: string }) => row.video_id);
+  const insights = await getChannelInsights(ids);
+  return (rows || []).map((row: any) => ({
+    videoId: row.video_id, title: row.title, channelTitle: row.channel_title,
+    publishedAt: row.published_at, viewCount: row.view_count || undefined,
+    thumbnailUrl: `https://i.ytimg.com/vi/${encodeURIComponent(row.video_id)}/hqdefault.jpg`,
+    insight: insights.videos.get(row.video_id),
+  }));
+}
 export async function getChannelInsights(videoIds: string[]) {
   if (!videoIds.length) return { videos: new Map<string, ChannelVideoInsight>(), overview: { analyzedVideos: 0, cards: [] as Array<{ key: string; label: string; value: number }> }, concepts: [] as Array<{ concept: string; videos: number; learners: number }> };
   const table = (name: string) => `\`${process.env.GOOGLE_CLOUD_PROJECT_ID}.${process.env.BIGQUERY_DATASET}.${name}\``;

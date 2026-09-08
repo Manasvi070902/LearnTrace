@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { getChannelInsights, getChannelOverview } from '../services/bigquery/channel.insights';
+import { getChannelInsights, getChannelOverview, getStoredChannelVideos } from '../services/bigquery/channel.insights';
 import { getChannelVideos, getPublicChannel, resolvePublicChannel } from '../services/youtube/channel.service';
 
 const router = Router();
@@ -25,9 +25,10 @@ router.get('/:channelId/videos', async (req: Request, res: Response) => {
   try {
     const channel = await getPublicChannel(String(req.params.channelId));
     const catalog = await getChannelVideos(channel, typeof req.query.pageToken === 'string' ? req.query.pageToken : undefined);
-    const [insights, overview] = await Promise.all([
+    const [insights, overview, storedVideos] = await Promise.all([
       getChannelInsights(catalog.videos.map((video) => video.videoId)),
       getChannelOverview(channel.channelId),
+      getStoredChannelVideos(channel.channelId),
     ]);
     return res.json({
       ...catalog,
@@ -39,6 +40,7 @@ router.get('/:channelId/videos', async (req: Request, res: Response) => {
       })),
       overview: overview.overview,
       concepts: overview.concepts,
+      storedVideos,
     });
   } catch (error) { return sendChannelError(res, error, "Couldn't load the channel's videos."); }
 });
