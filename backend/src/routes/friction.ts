@@ -441,7 +441,7 @@ router.get('/video/:videoId/response-workflow', async (req: Request, res: Respon
     const videoId = String(req.params.videoId);
     if (!(await videoExists(videoId))) return res.status(404).json({ status: 'error', error: 'Video was not found.' });
     const computed = await getWorkflowItems(videoId);
-    await upsertWorkflowItems(computed);
+    await upsertWorkflowItems(computed, videoId);
     const states = new Map((await getWorkflowStates(videoId)).map((state) => [state.workflow_id, state]));
     const statefulItems = computed.map((item) => {
       const state = states.get(item.workflowId);
@@ -471,7 +471,8 @@ router.get('/video/:videoId/response-workflow', async (req: Request, res: Respon
     });
     const needsResponse = items.filter((item) => item.resolutionStatus === 'needs_response' || item.resolutionStatus === 'unclear');
     const resolved = items.filter((item) => item.resolutionStatus === 'resolved' || item.resolutionStatus === 'community_answered');
-    return res.json({ status: 'success', videoId, needsResponse, resolved, summary: { total: items.length, needsResponse: needsResponse.length, resolved: resolved.length } });
+    const snoozed = items.filter((item) => item.resolutionStatus === 'snoozed');
+    return res.json({ status: 'success', videoId, needsResponse, resolved, snoozed, summary: { total: items.length, needsResponse: needsResponse.length, resolved: resolved.length, snoozed: snoozed.length } });
   } catch (error) {
     return res.status(500).json({ status: 'error', error: 'Something went wrong' });
   }
@@ -490,6 +491,14 @@ router.post('/video/:videoId/response-workflow/:workflowId/snooze', async (req: 
   try {
     await snoozeWorkflow(String(req.params.videoId), String(req.params.workflowId));
     return res.json({ status: 'success', snoozed: true });
+  } catch (error) { return res.status(500).json({ status: 'error', error: 'Something went wrong' }); }
+});
+
+/** Restores a snoozed follow-up to the open creator queue. */
+router.post('/video/:videoId/response-workflow/:workflowId/restore', async (req: Request, res: Response) => {
+  try {
+    await setWorkflowResolution(String(req.params.videoId), String(req.params.workflowId), false);
+    return res.json({ status: 'success', restored: true });
   } catch (error) { return res.status(500).json({ status: 'error', error: 'Something went wrong' }); }
 });
 

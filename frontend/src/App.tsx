@@ -8,6 +8,9 @@ import { BrandMark } from './components/BrandMark';
 
 const DEMO_CHANNEL_URL = 'https://www.youtube.com/@googlecloudtech';
 const DEMO_THUMBNAIL = 'https://i.ytimg.com/vi/IeMYQ-qJeK4/hqdefault.jpg';
+// Replace this with your GitHub profile or repository URL before publishing.
+const GITHUB_URL = 'https://github.com/your-github-username';
+const LINKEDIN_URL = 'https://www.linkedin.com/in/manasvi-alimchandani-934b49197/';
 
 export default function App() {
   const [url, setUrl] = useState('');
@@ -218,11 +221,22 @@ if (trace.gapDetected) { renderHeatmap(); updateMetrics(); }`}
       </main>
 
       <footer className="footer">
-        <p>&copy; {new Date().getFullYear()} LearnTrace. All rights reserved.</p>
+        <p>&copy; {new Date().getFullYear()} LearnTrace</p>
+        <p className="footer-credit">Made with <span className="footer-heart" aria-label="love">♥</span> by Manasvi Alimchandani</p>
+        <nav className="footer-socials" aria-label="Manasvi Alimchandani social links">
+          <a href={GITHUB_URL} target="_blank" rel="noreferrer" aria-label="GitHub"><FooterIcon name="github" /></a>
+          <a href={LINKEDIN_URL} target="_blank" rel="noreferrer" aria-label="LinkedIn"><FooterIcon name="linkedin" /></a>
+        </nav>
       </footer>
 
     </div>
   );
+}
+
+function FooterIcon({ name }: { name: 'github' | 'linkedin' }) {
+  return <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">{name === 'github'
+    ? <path d="M12 2C6.48 2 2 6.58 2 12.23c0 4.52 2.87 8.35 6.84 9.7.5.1.68-.22.68-.49 0-.24-.01-1.04-.01-1.89-2.78.62-3.37-1.2-3.37-1.2-.45-1.18-1.11-1.49-1.11-1.49-.91-.64.07-.63.07-.63 1 .07 1.53 1.06 1.53 1.06.9 1.56 2.35 1.11 2.92.85.09-.67.35-1.12.64-1.37-2.22-.26-4.56-1.14-4.56-5.08 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.31.1-2.73 0 0 .84-.28 2.75 1.05A9.3 9.3 0 0 1 12 6.4c.85 0 1.7.12 2.5.35 1.91-1.33 2.75-1.05 2.75-1.05.55 1.42.2 2.47.1 2.73.64.72 1.03 1.63 1.03 2.75 0 3.95-2.34 4.81-4.57 5.07.36.32.68.92.68 1.86 0 1.35-.01 2.43-.01 2.76 0 .27.18.6.69.49A10.25 10.25 0 0 0 22 12.23C22 6.58 17.52 2 12 2Z" />
+    : <path d="M20.45 20.45h-3.56v-5.57c0-1.33-.03-3.04-1.85-3.04-1.85 0-2.13 1.45-2.13 2.94v5.67H9.35V8.98h3.42v1.57h.05c.48-.9 1.64-1.85 3.37-1.85 3.6 0 4.26 2.37 4.26 5.45v6.3ZM5.34 7.41a2.07 2.07 0 1 1 0-4.14 2.07 2.07 0 0 1 0 4.14Zm1.78 13.04H3.56V8.98h3.56v11.47Z" />}</svg>;
 }
 
 function isYouTubeVideoUrl(value: string): boolean {

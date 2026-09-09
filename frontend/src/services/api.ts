@@ -184,6 +184,10 @@ export async function snoozeResponseWorkflow(videoId: string, workflowId: string
   const response = await fetch(`${API_BASE_URL}/analyze/video/${encodeURIComponent(videoId)}/response-workflow/${encodeURIComponent(workflowId)}/snooze`, { method: 'POST' });
   const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Could not snooze response workflow.');
 }
+export async function restoreResponseWorkflow(videoId: string, workflowId: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/analyze/video/${encodeURIComponent(videoId)}/response-workflow/${encodeURIComponent(workflowId)}/restore`, { method: 'POST' });
+  const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Could not restore response workflow.');
+}
 export async function generateResponseDraft(videoId: string, workflowId: string, mode: ResponseDraftMode, regenerate = false): Promise<ResponseDraftResponse> {
   const response = await fetch(`${API_BASE_URL}/analyze/video/${encodeURIComponent(videoId)}/response-workflow/${encodeURIComponent(workflowId)}/draft`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode, regenerate }) });
   const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Could not draft a reply.'); return data;

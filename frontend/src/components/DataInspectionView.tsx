@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { AnalyzeVideoResponse, FrictionResponse } from '../types';
-import { analyzeLearningSignals, getCachedFrictionAnalysis, getCachedLearningSignals, runFrictionAnalysis } from '../services/api';
+import { analyzeLearningSignals, getCachedFrictionAnalysis, getCachedLearningSignals } from '../services/api';
 import { ConfusionMapView } from './ConfusionMapView';
 import { LearnTraceIcon } from './LearnTraceIcon';
 import { RequestError, RequestErrorDetails } from './RequestError';
@@ -16,7 +16,6 @@ export function DataInspectionView({ data, onOpenChannel }: DataInspectionViewPr
   const [frictionResult, setFrictionResult] = useState<FrictionResponse | null>(null);
   const frictionLoading = false;
   const [expansionLoading, setExpansionLoading] = useState(false);
-  const [rebuildLoading, setRebuildLoading] = useState(false);
   const [expansionError, setExpansionError] = useState<RequestErrorDetails | null>(null);
   const totalConversations = totalCommentsFetched + totalRepliesFetched;
   const reportedComments = data.youtubeCommentCount;
@@ -26,6 +25,7 @@ export function DataInspectionView({ data, onOpenChannel }: DataInspectionViewPr
   const missingRecords = reportedComments && reportedComments > totalConversations
     ? reportedComments - totalConversations
     : 0;
+  const allConversationsAnalyzed = Boolean(frictionResult?.report && frictionResult.report.aiAnalyzedComments >= totalConversations);
 
   // Rehydrate the creator dashboard from stored analysis when it already
   // exists. These requests do not generate additional provider work.
@@ -78,20 +78,6 @@ export function DataInspectionView({ data, onOpenChannel }: DataInspectionViewPr
     }
   };
 
-  /** Rebuilds clustering and audience cards from cached analysis only. */
-  const rebuildAudienceInsights = async () => {
-    if (!video) return;
-    setRebuildLoading(true);
-    setExpansionError(null);
-    try {
-      setFrictionResult(await runFrictionAnalysis(video.videoId));
-    } catch (error) {
-      setExpansionError(friendlyErrorMessage(error instanceof Error ? error.message : ''));
-    } finally {
-      setRebuildLoading(false);
-    }
-  };
-
   const formatDate = (isoString?: string) => {
     if (!isoString) return 'N/A';
     try {
@@ -138,8 +124,7 @@ export function DataInspectionView({ data, onOpenChannel }: DataInspectionViewPr
         <aside className="audience-status">
           <span className="audience-status-kicker"><LearnTraceIcon name="sparkles" size={16} /> Audience analysis</span>
           {frictionResult?.report ? <><strong>Audience insights ready</strong><p>{frictionResult.report.aiAnalyzedComments.toLocaleString()} of {totalConversations.toLocaleString()} conversations analyzed</p><div className="analysis-progress-row"><div className="analysis-progress"><span style={{ width: `${totalConversations ? Math.min(100, (frictionResult.report.aiAnalyzedComments / totalConversations) * 100) : 0}%` }} /></div><small>{totalConversations ? ((frictionResult.report.aiAnalyzedComments / totalConversations) * 100).toFixed(1) : '0.0'}%</small></div></> : <><strong>Ready to understand your audience</strong><p>Analyze conversations to uncover learner questions, repeated difficulties, requests, and feedback.</p></>}
-          <button className="conversations-toggle audience-analyze-button" onClick={analyzeMoreConversations} disabled={frictionLoading || expansionLoading || !video || Boolean(frictionResult?.report && frictionResult.report.aiAnalyzedComments >= totalConversations)}><LearnTraceIcon name="refresh" size={17} /> {expansionLoading ? 'Analyzing audience…' : frictionResult?.report && frictionResult.report.aiAnalyzedComments >= totalConversations ? 'All available conversations analyzed' : frictionResult?.report ? 'Analyze more comments' : 'Analyze comments'}</button>
-          {frictionResult?.report && <><button className="conversations-toggle audience-analyze-button" onClick={rebuildAudienceInsights} disabled={rebuildLoading || expansionLoading || !video}><LearnTraceIcon name="refresh" size={17} /> {rebuildLoading ? 'Refreshing insights…' : 'Refresh audience insights'}</button><small>Regroups cached comments without analyzing more.</small></>}
+          <button className="conversations-toggle audience-analyze-button" onClick={analyzeMoreConversations} disabled={frictionLoading || expansionLoading || !video || allConversationsAnalyzed}><LearnTraceIcon name="refresh" size={17} /> {expansionLoading ? 'Analyzing audience…' : allConversationsAnalyzed ? 'All available conversations analyzed' : frictionResult?.report ? 'Analyze more comments' : 'Analyze comments'}</button>
         </aside>
       </section>}
 

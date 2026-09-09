@@ -27,8 +27,9 @@ export async function getWorkflowStates(videoId: string): Promise<StoredWorkflow
 }
 
 /** Persists workflow identity and computed presentation fields without overwriting manual resolution. */
-export async function upsertWorkflowItems(items: ResponseWorkflowItem[]): Promise<void> {
-  if (!items.length) return;
+export async function upsertWorkflowItems(items: ResponseWorkflowItem[], videoId?: string): Promise<void> {
+  const targetVideoId = videoId || items[0]?.videoId;
+  if (!targetVideoId) return;
   const now = new Date().toISOString();
   const rows = items.map((item) => ({
     workflow_id: item.workflowId, video_id: item.videoId, source_category: item.sourceCategory,
@@ -39,7 +40,7 @@ export async function upsertWorkflowItems(items: ResponseWorkflowItem[]): Promis
     community_reply_comment_id: item.communityReplyCommentId, suggested_response_type: item.suggestedResponseType,
     created_at: now, updated_at: now,
   }));
-  await getBigQueryClient().query({
+  if (rows.length) await getBigQueryClient().query({
     query: `MERGE ${table(TABLE_NAMES.RESPONSE_WORKFLOW)} target USING UNNEST(@rows) source
       ON target.workflow_id = source.workflow_id AND target.video_id = source.video_id
       WHEN MATCHED THEN UPDATE SET source_category = source.source_category, source_insight_id = source.source_insight_id, title = source.title, normalized_need = source.normalized_need, supporting_comment_ids = source.supporting_comment_ids, priority = source.priority, suggested_response_type = source.suggested_response_type, creator_reply_comment_id = source.creator_reply_comment_id, community_reply_comment_id = source.community_reply_comment_id, resolution_status = IF(target.resolution_source = 'creator_reply_detected', 'needs_response', target.resolution_status), resolution_source = IF(target.resolution_source = 'creator_reply_detected', NULL, target.resolution_source), resolved_at = IF(target.resolution_source = 'creator_reply_detected', NULL, target.resolved_at), updated_at = TIMESTAMP(source.updated_at)
@@ -48,6 +49,14 @@ export async function upsertWorkflowItems(items: ResponseWorkflowItem[]): Promis
     params: { rows },
     types: { rows: [{ workflow_id: 'STRING', video_id: 'STRING', source_category: 'STRING', source_insight_id: 'STRING', title: 'STRING', normalized_need: 'STRING', supporting_comment_ids: ['STRING'], priority: 'STRING', resolution_status: 'STRING', resolution_source: 'STRING', resolved_at: 'STRING', creator_reply_comment_id: 'STRING', community_reply_comment_id: 'STRING', suggested_response_type: 'STRING', created_at: 'STRING', updated_at: 'STRING' }] },
     ...options,
+  });
+  // Re-analysis can replace or remove creator actions. Preserve the old rows
+  // for audit, but stop them inflating current video/channel action counts.
+  await getBigQueryClient().query({
+    query: `UPDATE ${table(TABLE_NAMES.RESPONSE_WORKFLOW)} SET resolution_status = 'superseded', resolution_source = 'superseded', updated_at = CURRENT_TIMESTAMP()
+      WHERE video_id = @video_id AND workflow_id NOT IN UNNEST(@workflow_ids) AND resolution_status != 'superseded'`,
+    params: { video_id: targetVideoId, workflow_ids: rows.map((row) => row.workflow_id) },
+    types: { workflow_ids: ['STRING'] }, ...options,
   });
 }
 
