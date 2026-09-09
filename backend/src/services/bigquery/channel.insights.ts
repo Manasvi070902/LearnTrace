@@ -10,8 +10,8 @@ export type ChannelOverviewKey = 'difficulties' | 'requests' | 'strengths' | 're
 export interface ChannelOverviewVideo { videoId: string; title: string; value: number; }
 export interface CrossVideoPatternEvidence { videoId: string; title: string; supportingSignals: number; exampleQuestion?: string; }
 export interface CrossVideoPattern { concept: string; videos: number; supportingSignals: number; evidence: CrossVideoPatternEvidence[]; }
-export interface ChannelActionQueueItem { workflowId: string; videoId: string; videoTitle: string; title: string; actionType: string; priority: 'high' | 'medium' | 'low'; supportingLearners: number; }
-export interface ChannelActionQueue { totalPending: number; byVideo: ChannelOverviewVideo[]; byType: Array<{ label: string; value: number }>; items: ChannelActionQueueItem[]; }
+export interface ChannelActionQueueItem { workflowId: string; workflowIds: string[]; videoId: string; videoTitle: string; title: string; actionType: string; priority: 'high' | 'medium' | 'low'; supportingLearners: number; }
+export interface ChannelActionQueue { totalPending: number; byVideo: ChannelOverviewVideo[]; byType: Array<{ label: string; value: number }>; items: ChannelActionQueueItem[]; snoozedItems: ChannelActionQueueItem[]; }
 
 type StoredChannelCluster = {
   clusterId: string; videoId: string; label: string; concept: string; count: number;
@@ -115,23 +115,37 @@ async function getChannelActionQueue(channelId: string): Promise<ChannelActionQu
   const table = (name: string) => `\`${process.env.GOOGLE_CLOUD_PROJECT_ID}.${process.env.BIGQUERY_DATASET}.${name}\``;
   const [rows] = await getBigQueryClient().query({ query: `
     SELECT w.workflow_id, w.video_id, v.title AS video_title, w.title, w.suggested_response_type,
-      w.priority, w.supporting_comment_ids
+      w.priority, w.resolution_status, w.supporting_comment_ids
     FROM ${table(TABLE_NAMES.RESPONSE_WORKFLOW)} w
     JOIN ${table(TABLE_NAMES.VIDEOS)} v ON v.video_id = w.video_id
-    WHERE v.channel_id = @channel_id AND w.resolution_status IN ('needs_response', 'unclear')
+    WHERE v.channel_id = @channel_id AND w.resolution_status IN ('needs_response', 'unclear', 'snoozed')
   `, params: { channel_id: channelId }, location: process.env.BIGQUERY_LOCATION });
   const priorityRank: Record<string, number> = { high: 0, medium: 1, low: 2 };
-  const items = (rows || []).map((row: any): ChannelActionQueueItem => ({
+  const rawItems = (rows || []).map((row: any) => ({
     workflowId: row.workflow_id, videoId: row.video_id, videoTitle: row.video_title || 'Analyzed video',
     title: row.title || 'Audience follow-up', actionType: actionQueueType(row.suggested_response_type || ''),
-    priority: row.priority === 'high' || row.priority === 'low' ? row.priority : 'medium',
-    supportingLearners: Array.isArray(row.supporting_comment_ids) ? row.supporting_comment_ids.length : 1,
-  })).sort((left, right) => priorityRank[left.priority] - priorityRank[right.priority] || right.supportingLearners - left.supportingLearners || left.title.localeCompare(right.title));
+    priority: row.priority === 'high' || row.priority === 'low' ? row.priority : 'medium', resolutionStatus: row.resolution_status,
+    supportingCommentIds: Array.isArray(row.supporting_comment_ids) ? row.supporting_comment_ids : [],
+  }));
+  // Workflows are an audit layer and can be split by strict source clusters.
+  // The channel queue is a creator-facing action layer, so exact same-video
+  // needs with the same reply strategy are represented as one task.
+  const grouped = new Map<string, typeof rawItems[number][]>();
+  for (const item of rawItems) {
+    const key = `${item.resolutionStatus}::${item.videoId}::${item.actionType.toLowerCase()}::${item.title.trim().toLowerCase().replace(/\s+/g, ' ')}`;
+    grouped.set(key, [...(grouped.get(key) || []), item]);
+  }
+  const groupedItems: ChannelActionQueueItem[] = [...grouped.values()].map((group) => {
+    const primary = [...group].sort((left, right) => priorityRank[left.priority] - priorityRank[right.priority] || left.workflowId.localeCompare(right.workflowId))[0];
+    return { workflowId: primary.workflowId, workflowIds: group.map((item) => item.workflowId), videoId: primary.videoId, videoTitle: primary.videoTitle, title: primary.title, actionType: primary.actionType, priority: primary.priority, supportingLearners: new Set(group.flatMap((item) => item.supportingCommentIds)).size || group.length };
+  }).sort((left, right) => priorityRank[left.priority] - priorityRank[right.priority] || right.supportingLearners - left.supportingLearners || left.title.localeCompare(right.title));
+  const items = groupedItems.filter((item) => rawItems.find((raw) => raw.workflowId === item.workflowId)?.resolutionStatus !== 'snoozed');
+  const snoozedItems = groupedItems.filter((item) => rawItems.find((raw) => raw.workflowId === item.workflowId)?.resolutionStatus === 'snoozed');
   const counts = <T extends string>(values: T[]) => [...values.reduce((all, value) => all.set(value, (all.get(value) || 0) + 1), new Map<T, number>()).entries()].map(([label, value]) => ({ label, value })).sort((left, right) => right.value - left.value || left.label.localeCompare(right.label));
   return {
     totalPending: items.length,
     byVideo: counts(items.map((item) => item.videoId)).map(({ label: videoId, value }) => ({ videoId, title: items.find((item) => item.videoId === videoId)?.videoTitle || 'Analyzed video', value })),
-    byType: counts(items.map((item) => item.actionType)), items,
+    byType: counts(items.map((item) => item.actionType)), items, snoozedItems,
   };
 }
 
