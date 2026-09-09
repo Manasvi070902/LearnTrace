@@ -24,7 +24,7 @@ router.get('/:channelId', async (req: Request, res: Response) => {
 router.get('/:channelId/videos', async (req: Request, res: Response) => {
   try {
     const channel = await getPublicChannel(String(req.params.channelId));
-    const catalog = await getChannelVideos(channel, typeof req.query.pageToken === 'string' ? req.query.pageToken : undefined);
+    const catalog = await getChannelVideos(channel, typeof req.query.pageToken === 'string' ? req.query.pageToken : undefined, typeof req.query.search === 'string' ? req.query.search : undefined);
     const [insights, overview, storedVideos] = await Promise.all([
       getChannelInsights(catalog.videos.map((video) => video.videoId)),
       getChannelOverview(channel.channelId),
@@ -40,6 +40,7 @@ router.get('/:channelId/videos', async (req: Request, res: Response) => {
       })),
       overview: overview.overview,
       crossVideoPatterns: overview.crossVideoPatterns,
+      channelActionQueue: overview.channelActionQueue,
       storedVideos,
     });
   } catch (error) { return sendChannelError(res, error, "Couldn't load the channel's videos."); }

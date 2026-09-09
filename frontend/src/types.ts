@@ -258,9 +258,11 @@ export interface ChannelVideoInsight { videoId: string; analyzed: boolean; conve
 export interface ChannelVideo { videoId: string; title: string; thumbnailUrl?: string; publishedAt: string; channelTitle: string; viewCount?: string; commentCount?: string; insight: ChannelVideoInsight; }
 export type ChannelOverviewKey = 'difficulties' | 'requests' | 'strengths' | 'response';
 export interface ChannelCrossVideoPattern { concept: string; videos: number; supportingSignals: number; evidence: Array<{ videoId: string; title: string; supportingSignals: number; exampleQuestion?: string }> }
-export interface ChannelCatalogResponse { videos: ChannelVideo[]; storedVideos: ChannelVideo[]; nextPageToken?: string; overview: { analyzedVideos: number; cards: Array<{ key: ChannelOverviewKey; label: string; value: number }>; breakdowns: Record<ChannelOverviewKey, Array<{ videoId: string; title: string; value: number }>> }; crossVideoPatterns: ChannelCrossVideoPattern[]; }
+export interface ChannelActionQueueItem { workflowId: string; videoId: string; videoTitle: string; title: string; actionType: string; priority: 'high' | 'medium' | 'low'; supportingLearners: number; }
+export interface ChannelActionQueue { totalPending: number; byVideo: Array<{ videoId: string; title: string; value: number }>; byType: Array<{ label: string; value: number }>; items: ChannelActionQueueItem[]; }
+export interface ChannelCatalogResponse { videos: ChannelVideo[]; storedVideos: ChannelVideo[]; nextPageToken?: string; overview: { analyzedVideos: number; cards: Array<{ key: ChannelOverviewKey; label: string; value: number }>; breakdowns: Record<ChannelOverviewKey, Array<{ videoId: string; title: string; value: number }>> }; crossVideoPatterns: ChannelCrossVideoPattern[]; channelActionQueue: ChannelActionQueue; }
 
-export type ResponseWorkflowStatus = 'needs_response' | 'resolved' | 'community_answered' | 'unclear';
+export type ResponseWorkflowStatus = 'needs_response' | 'resolved' | 'community_answered' | 'unclear' | 'snoozed';
 export type ResponseDraftMode = 'individual_reply' | 'public_clarification' | 'technical_fix' | 'learning_path_guidance' | 'request_acknowledgement' | 'feedback_acknowledgement';
 export interface ResponseWorkflowEvidence { comment_id: string; parent_comment_id: string | null; comment_text: string; is_reply: boolean; published_at?: string; }
 export interface ResponseWorkflowItem {

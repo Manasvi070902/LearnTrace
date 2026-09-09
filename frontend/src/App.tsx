@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { analyzeVideo, friendlyRequestError, getCachedVideoAnalysis, resolveChannel } from './services/api';
+import { analyzeVideo, friendlyRequestError, resolveChannel } from './services/api';
 import { AnalyzeVideoResponse } from './types';
 import { DataInspectionView } from './components/DataInspectionView';
 import { RequestError, RequestErrorDetails } from './components/RequestError';
 import { ChannelOverview } from './components/ChannelOverview';
 import { BrandMark } from './components/BrandMark';
 
-const DEMO_VIDEO_ID = 'PFDu9oVAE-g';
-const DEMO_THUMBNAIL = `https://i.ytimg.com/vi/${DEMO_VIDEO_ID}/hqdefault.jpg`;
+const DEMO_CHANNEL_URL = 'https://www.youtube.com/@googlecloudtech';
+const DEMO_THUMBNAIL = 'https://i.ytimg.com/vi/IeMYQ-qJeK4/hqdefault.jpg';
 
 export default function App() {
   const [url, setUrl] = useState('');
@@ -63,9 +63,11 @@ export default function App() {
     setDemoLoading(true);
     setError(null);
     try {
-      setAnalysisResult(await getCachedVideoAnalysis(DEMO_VIDEO_ID));
+      const channel = await resolveChannel(DEMO_CHANNEL_URL);
+      setChannelId(channel.channelId);
+      window.history.pushState({}, '', `/channel/${channel.channelId}`);
     } catch {
-      setError({ title: 'Demo analysis is temporarily unavailable.', message: 'You can still analyze a public educational YouTube video above.' });
+      setError({ title: 'Demo channel is temporarily unavailable.', message: 'You can still analyze a public educational YouTube link above.' });
     } finally {
       setDemoLoading(false);
     }
@@ -169,13 +171,13 @@ if (trace.gapDetected) { renderHeatmap(); updateMetrics(); }`}
 
             <section className="demo-section" aria-labelledby="demo-heading">
               <h2 id="demo-heading">Try a pre-tested example</h2>
-              <p>Explore LearnTrace instantly with a pre-analyzed educational video.</p>
+              <p>Explore a real channel with analyzed videos, recurring themes, and action items.</p>
               <button type="button" className="demo-card" onClick={() => void handleDemo()} disabled={demoLoading}>
-                <img src={DEMO_THUMBNAIL} alt="Eigenvectors and eigenvalues video thumbnail" />
-                <span className="demo-card-copy"><strong>Eigenvectors and eigenvalues</strong><em>3Blue1Brown</em><small>Explore recurring learner questions, Learning Friction and creator actions.</small></span>
-                <span className="demo-card-cta">{demoLoading ? 'Loading…' : 'View analysis →'}</span>
+                <img src={DEMO_THUMBNAIL} alt="Google Cloud channel example thumbnail" />
+                <span className="demo-card-copy"><strong>Google Cloud Tech</strong><em>YouTube channel example</em><small>Explore channel-wide learner themes, pending responses, and video-level evidence.</small></span>
+                <span className="demo-card-cta">{demoLoading ? 'Loading…' : 'Explore channel →'}</span>
               </button>
-              <small className="demo-caption">Uses cached analysis for a faster shared demo.</small>
+              <small className="demo-caption">Uses stored LearnTrace analyses already available for this channel.</small>
             </section>
 
             <div className="features-badges">

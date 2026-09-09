@@ -76,8 +76,9 @@ export async function getChannel(channelId: string): Promise<ChannelMetadata> {
   const response = await fetch(`${API_BASE_URL}/channel/${encodeURIComponent(channelId)}`); const data = await response.json();
   if (!response.ok) throw friendlyRequestError(response.status, data.error); return data;
 }
-export async function getChannelVideos(channelId: string, pageToken?: string): Promise<ChannelCatalogResponse> {
-  const suffix = pageToken ? `?pageToken=${encodeURIComponent(pageToken)}` : '';
+export async function getChannelVideos(channelId: string, pageToken?: string, search?: string): Promise<ChannelCatalogResponse> {
+  const params = new URLSearchParams(); if (pageToken) params.set('pageToken', pageToken); if (search?.trim()) params.set('search', search.trim());
+  const suffix = params.size ? `?${params}` : '';
   const response = await fetch(`${API_BASE_URL}/channel/${encodeURIComponent(channelId)}/videos${suffix}`); const data = await response.json();
   if (!response.ok) throw friendlyRequestError(response.status, data.error); return data;
 }
@@ -150,6 +151,17 @@ export async function generateConceptDiagnosis(videoId: string, concept: string)
   return data as DiagnosisResponse;
 }
 
+export async function getTopicDiagnosis(videoId: string, concept: string, commentIds: string[]): Promise<DiagnosisResponse> {
+  const query = new URLSearchParams({ concept, commentIds: commentIds.join(',') });
+  const response = await fetch(`${API_BASE_URL}/analyze/video/${encodeURIComponent(videoId)}/topics/diagnosis?${query}`);
+  const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Could not load AI interpretation.'); return data as DiagnosisResponse;
+}
+
+export async function generateTopicDiagnosis(videoId: string, concept: string, commentIds: string[]): Promise<DiagnosisResponse> {
+  const response = await fetch(`${API_BASE_URL}/analyze/video/${encodeURIComponent(videoId)}/topics/diagnosis`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ concept, commentIds }) });
+  const data = await response.json(); if (!response.ok) throw new Error(data.error || 'AI interpretation is temporarily unavailable.'); return data as DiagnosisResponse;
+}
+
 /** Loads cached creator-facing signals only; this endpoint never generates AI content. */
 export async function getCreatorActions(videoId: string): Promise<CreatorActionsResponse> {
   const response = await fetch(`${API_BASE_URL}/analyze/video/${encodeURIComponent(videoId)}/creator-actions`, { cache: 'no-store' });
@@ -167,6 +179,10 @@ export async function getResponseWorkflow(videoId: string): Promise<ResponseWork
 export async function setResponseWorkflowResolution(videoId: string, workflowId: string, resolved: boolean): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/analyze/video/${encodeURIComponent(videoId)}/response-workflow/${encodeURIComponent(workflowId)}/resolution`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ resolved }) });
   const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Could not update response workflow.');
+}
+export async function snoozeResponseWorkflow(videoId: string, workflowId: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/analyze/video/${encodeURIComponent(videoId)}/response-workflow/${encodeURIComponent(workflowId)}/snooze`, { method: 'POST' });
+  const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Could not snooze response workflow.');
 }
 export async function generateResponseDraft(videoId: string, workflowId: string, mode: ResponseDraftMode, regenerate = false): Promise<ResponseDraftResponse> {
   const response = await fetch(`${API_BASE_URL}/analyze/video/${encodeURIComponent(videoId)}/response-workflow/${encodeURIComponent(workflowId)}/draft`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode, regenerate }) });

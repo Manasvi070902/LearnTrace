@@ -58,6 +58,14 @@ export async function setWorkflowResolution(videoId: string, workflowId: string,
   });
 }
 
+/** Snoozed items remain persisted but leave the creator's active queue. */
+export async function snoozeWorkflow(videoId: string, workflowId: string): Promise<void> {
+  await getBigQueryClient().query({
+    query: `UPDATE ${table(TABLE_NAMES.RESPONSE_WORKFLOW)} SET resolution_status = 'snoozed', resolution_source = 'snoozed', resolved_at = NULL, updated_at = CURRENT_TIMESTAMP() WHERE video_id = @video_id AND workflow_id = @workflow_id`,
+    params: { video_id: videoId, workflow_id: workflowId }, ...options,
+  });
+}
+
 export async function getCachedResponseDraft(videoId: string, workflowId: string, contextVersion: string): Promise<StoredResponseDraft | null> {
   const [rows] = await getBigQueryClient().query({
     query: `SELECT draft_id, workflow_id, video_id, context_version, draft_text, model_name, CAST(created_at AS STRING) AS created_at FROM ${table(TABLE_NAMES.RESPONSE_DRAFTS)} WHERE video_id = @video_id AND workflow_id = @workflow_id AND context_version = @context_version ORDER BY created_at DESC LIMIT 1`,

@@ -2,8 +2,8 @@ import { createHash, randomUUID } from 'crypto';
 import { CreatorAction } from '../creator-actions/creator-actions.service';
 
 export type ResponsePriority = 'high' | 'medium' | 'low';
-export type ResponseResolutionStatus = 'needs_response' | 'resolved' | 'community_answered' | 'unclear';
-export type ResponseResolutionSource = 'creator_reply_detected' | 'creator_reply_ai_confirmed' | 'manual' | 'community_answer' | 'unclear' | null;
+export type ResponseResolutionStatus = 'needs_response' | 'resolved' | 'community_answered' | 'unclear' | 'snoozed';
+export type ResponseResolutionSource = 'creator_reply_detected' | 'creator_reply_ai_confirmed' | 'manual' | 'community_answer' | 'unclear' | 'snoozed' | null;
 export type CreatorReplyOutcome = 'answered' | 'partial' | 'not_answered';
 export type ResponseDraftMode = 'individual_reply' | 'public_clarification' | 'technical_fix' | 'learning_path_guidance' | 'request_acknowledgement' | 'feedback_acknowledgement';
 

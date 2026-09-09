@@ -45,16 +45,24 @@ export function isInterpretationEligible(score: FrictionRow, clusters: ClusterRo
     && clusters.some((cluster) => cluster.question_count >= 2);
 }
 
+/** A creator-facing topic may combine several strict clusters. Three or more
+ * verified topic comments are enough to request a cautious interpretation. */
+export function isTopicInterpretationEligible(evidenceCount: number): boolean {
+  return evidenceCount >= getMinSignalsForFrictionScore();
+}
+
 export function buildEvidencePacket(
   videoId: string,
   concept: string,
   score: FrictionRow,
   clusters: Array<ClusterRow & { evidence: ClusterEvidenceRow[] }>,
   videoTitle?: string,
+  includeIndividualClusters = false,
 ): InterpretationPacket {
-  if (!isInterpretationEligible(score, clusters)) throw new Error('Not enough repeated evidence for an AI interpretation yet.');
+  if (!includeIndividualClusters && !isInterpretationEligible(score, clusters)) throw new Error('Not enough repeated evidence for an AI interpretation yet.');
+  if (includeIndividualClusters && !isTopicInterpretationEligible(clusters.reduce((total, cluster) => total + cluster.evidence.length, 0))) throw new Error('Not enough topic evidence for an AI interpretation yet.');
   const evidenceClusters = clusters
-    .filter((cluster) => cluster.question_count >= 2)
+    .filter((cluster) => includeIndividualClusters || cluster.question_count >= 2)
     .sort((a, b) => b.question_count - a.question_count || a.cluster_id.localeCompare(b.cluster_id))
     .slice(0, MAX_CLUSTERS)
     .map((cluster) => ({
@@ -71,7 +79,8 @@ export function buildEvidencePacket(
     videoId, videoTitle, concept,
     questionClusteringVersion,
     learningFrictionScore: score.learning_friction_score!, frictionLevel: score.friction_level,
-    learningSignalCount: score.question_count, recurringQuestionCount: evidenceClusters.length,
+    learningSignalCount: includeIndividualClusters ? clusters.reduce((total, cluster) => total + cluster.evidence.length, 0) : score.question_count,
+    recurringQuestionCount: evidenceClusters.filter((cluster) => cluster.memberCount >= 2).length,
     averageConfusionStrength: score.average_confusion_strength,
     recurrenceScore: score.recurrence_score,
     evidenceClusters,

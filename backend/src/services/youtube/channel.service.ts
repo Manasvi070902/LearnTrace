@@ -38,17 +38,20 @@ export async function getPublicChannel(channelId: string): Promise<ChannelMetada
   return mapChannel(response.data.items[0]);
 }
 
-export async function getChannelVideos(channel: ChannelMetadata, pageToken?: string) {
-  const response = await axios.get(`${BASE_URL}/playlistItems`, { params: { part: 'snippet,contentDetails', playlistId: channel.uploadsPlaylistId, maxResults: 24, pageToken, key: apiKey() }, timeout: 15000 });
-  const ids = (response.data?.items || []).map((item: any) => item.contentDetails?.videoId).filter(Boolean);
+export async function getChannelVideos(channel: ChannelMetadata, pageToken?: string, search?: string) {
+  const searchTerm = search?.trim();
+  const response = searchTerm
+    ? await axios.get(`${BASE_URL}/search`, { params: { part: 'snippet', channelId: channel.channelId, type: 'video', q: searchTerm, maxResults: 24, pageToken, key: apiKey() }, timeout: 15000 })
+    : await axios.get(`${BASE_URL}/playlistItems`, { params: { part: 'snippet,contentDetails', playlistId: channel.uploadsPlaylistId, maxResults: 24, pageToken, key: apiKey() }, timeout: 15000 });
+  const ids = (response.data?.items || []).map((item: any) => searchTerm ? item.id?.videoId : item.contentDetails?.videoId).filter(Boolean);
   const stats = new Map<string, any>();
   if (ids.length) {
     const videoResponse = await axios.get(`${BASE_URL}/videos`, { params: { part: 'statistics', id: ids.join(','), key: apiKey() }, timeout: 10000 });
     for (const video of videoResponse.data?.items || []) stats.set(video.id, video.statistics || {});
   }
   const videos: ChannelVideo[] = (response.data?.items || []).map((item: any) => {
-    const snippet = item.snippet || {}; const s = stats.get(item.contentDetails.videoId) || {}; const thumbs = snippet.thumbnails || {};
-    return { videoId: item.contentDetails.videoId, title: snippet.title || 'Untitled video', thumbnailUrl: thumbs.medium?.url || thumbs.high?.url || thumbs.default?.url, publishedAt: item.contentDetails.videoPublishedAt || snippet.publishedAt, channelTitle: snippet.videoOwnerChannelTitle || channel.title, viewCount: s.viewCount, commentCount: s.commentCount };
+    const snippet = item.snippet || {}; const videoId = searchTerm ? item.id?.videoId : item.contentDetails?.videoId; const s = stats.get(videoId) || {}; const thumbs = snippet.thumbnails || {};
+    return { videoId, title: snippet.title || 'Untitled video', thumbnailUrl: thumbs.medium?.url || thumbs.high?.url || thumbs.default?.url, publishedAt: item.contentDetails?.videoPublishedAt || snippet.publishedAt, channelTitle: snippet.videoOwnerChannelTitle || channel.title, viewCount: s.viewCount, commentCount: s.commentCount };
   });
   return { videos, nextPageToken: response.data?.nextPageToken as string | undefined };
 }

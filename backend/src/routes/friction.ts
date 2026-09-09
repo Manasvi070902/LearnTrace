@@ -7,18 +7,19 @@
  */
 
 import { Router, Request, Response } from 'express';
+import { createHash } from 'node:crypto';
 import { getAnalysisForVideo, getCommentsForVideo, getVideoChannelId, videoExists } from '../services/bigquery/bigquery.analysis';
 import { analyzeFrictionForVideo, getFrictionAnalysisForVideo } from '../services/bigquery/bigquery.friction.orchestration';
 import { getVideoClusters, getClusterEvidence } from '../services/bigquery/bigquery.friction';
 import { normalizeConcept } from '../services/clustering/concept-normalizer';
 import { CLUSTERING_VERSION } from '../services/clustering/clustering.service';
-import { getConfiguredDiagnosisModel, buildEvidencePacket, fingerprintEvidence, generateAiInterpretation, isInterpretationEligible, PHASE6_DIAGNOSIS_VERSION } from '../services/phase6/interpretation.service';
+import { getConfiguredDiagnosisModel, buildEvidencePacket, fingerprintEvidence, generateAiInterpretation, isInterpretationEligible, isTopicInterpretationEligible, PHASE6_DIAGNOSIS_VERSION } from '../services/phase6/interpretation.service';
 import { getCachedDiagnosis, storeDiagnosis } from '../services/bigquery/bigquery.diagnosis';
 import { buildCreatorActions } from '../services/creator-actions/creator-actions.service';
 import { PROMPT_VERSION } from '../prompts/comment-analysis.prompt';
 import { getConfiguredGeminiModel } from '../services/gemini/comment-analysis.service';
 import { buildCreatorReplyAssessmentPrompt, buildCreatorReplyContexts, buildResponseWorkflowItems, buildDraftPrompt, creatorReplyAssessmentFingerprint, draftContextFingerprint, newDraftId, RESPONSE_CONTEXT_VERSION, ResponseDraftMode, ResponseWorkflowItem, validateCreatorReplyAssessment, validateDraft } from '../services/response-workflow/response-workflow.service';
-import { getCachedCreatorReplyAssessment, getCachedDraftContextKeys, getCachedResponseDraft, getCreatorReplyAssessmentUsageToday, getResponseDraftUsageToday, getWorkflowStates, markWorkflowCreatorReplyAnswered, setWorkflowResolution, storeCreatorReplyAssessment, storeResponseDraft, upsertWorkflowItems } from '../services/bigquery/bigquery.response-workflow';
+import { getCachedCreatorReplyAssessment, getCachedDraftContextKeys, getCachedResponseDraft, getCreatorReplyAssessmentUsageToday, getResponseDraftUsageToday, getWorkflowStates, markWorkflowCreatorReplyAnswered, setWorkflowResolution, snoozeWorkflow, storeCreatorReplyAssessment, storeResponseDraft, upsertWorkflowItems } from '../services/bigquery/bigquery.response-workflow';
 import { getResponseModel, withReasoningFallback } from '../services/gemini/model-policy';
 import { getGeminiClient } from '../services/gemini/gemini-client';
 import { getVideoEmbeddings } from '../services/bigquery/bigquery.embedding';
@@ -268,6 +269,58 @@ const insufficientInterpretation = () => ({
   supportingText: 'LearnTrace needs recurring evidence of the same learning difficulty before suggesting a learning gap or educational action.',
 });
 
+function topicCommentIds(value: unknown): string[] {
+  if (typeof value !== 'string') return [];
+  return [...new Set(value.split(',').map((id) => id.trim()).filter((id) => /^[A-Za-z0-9_-]{6,}$/.test(id)))].slice(0, 100);
+}
+
+async function getTopicInterpretationContext(videoId: string, concept: string, commentIds: string[]) {
+  const wanted = new Set(commentIds);
+  const [scores, rawClusters] = await Promise.all([getFrictionAnalysisForVideo(videoId), getVideoClusters(videoId, CLUSTERING_VERSION)]);
+  const clustersWithEvidence = await Promise.all(rawClusters.map(async (cluster) => ({ ...cluster, evidence: (await getClusterEvidence(cluster.cluster_id)).filter((item) => wanted.has(item.comment_id)) })));
+  const clusters = clustersWithEvidence.filter((cluster) => cluster.evidence.length);
+  const evidenceCount = new Set(clusters.flatMap((cluster) => cluster.evidence.map((item) => item.comment_id))).size;
+  if (!isTopicInterpretationEligible(evidenceCount)) return null;
+  const matchedScore = (scores || []).find((score) => score.normalized_concept === concept);
+  const score = matchedScore || {
+    video_id: videoId, normalized_concept: concept, learning_friction_score: 0, friction_level: 'High volume topic',
+    question_count: evidenceCount, cluster_count: clusters.length, volume_score: null, confusion_score: null,
+    recurrence_score: null, average_confusion_strength: clusters.reduce((sum, cluster) => sum + cluster.average_confusion_strength, 0) / Math.max(1, clusters.length), evidence_count: evidenceCount,
+    calculated_at: new Date().toISOString(), scoring_version: 'topic-v1',
+  };
+  return { score, clusters, evidenceCount };
+}
+
+router.get('/video/:videoId/topics/diagnosis', async (req: Request, res: Response) => {
+  try {
+    const videoId = String(req.params.videoId); const concept = String(req.query.concept || ''); const commentIds = topicCommentIds(req.query.commentIds);
+    if (!concept || !commentIds.length) return res.status(400).json({ status: 'error', error: 'A topic and its evidence are required.' });
+    const context = await getTopicInterpretationContext(videoId, concept, commentIds);
+    if (!context) return res.json({ status: 'success', ...insufficientInterpretation() });
+    const packet = buildEvidencePacket(videoId, concept, context.score, context.clusters, undefined, true);
+    const topicKey = `topic:${createHash('sha256').update([...commentIds].sort().join('\u0000')).digest('hex').slice(0, 24)}`;
+    const cached = await getCachedDiagnosis(videoId, topicKey, getConfiguredDiagnosisModel(), fingerprintEvidence(packet));
+    return res.json({ status: 'success', eligible: true, cached: Boolean(cached), interpretation: cached || null, evidence: packet });
+  } catch { return res.status(500).json({ status: 'error', error: 'Could not load AI interpretation.' }); }
+});
+
+router.post('/video/:videoId/topics/diagnosis', async (req: Request, res: Response) => {
+  try {
+    const videoId = String(req.params.videoId); const concept = String(req.body?.concept || ''); const commentIds = Array.isArray(req.body?.commentIds) ? req.body.commentIds.filter((id: unknown) => typeof id === 'string') : [];
+    const context = await getTopicInterpretationContext(videoId, concept, commentIds);
+    if (!concept || !context) return res.json({ status: 'success', ...insufficientInterpretation() });
+    const packet = buildEvidencePacket(videoId, concept, context.score, context.clusters, undefined, true);
+    const fingerprint = fingerprintEvidence(packet); const modelName = getConfiguredDiagnosisModel();
+    const topicKey = `topic:${createHash('sha256').update([...commentIds].sort().join('\u0000')).digest('hex').slice(0, 24)}`;
+    const cached = await getCachedDiagnosis(videoId, topicKey, modelName, fingerprint);
+    if (cached) return res.json({ status: 'success', eligible: true, cached: true, interpretation: cached, evidence: packet });
+    const generated = await generateAiInterpretation(packet);
+    const row = { ...generated.interpretation, video_id: videoId, concept, concept_key: topicKey, learning_friction_score: context.score.learning_friction_score || 0, friction_level: context.score.friction_level, evidence_fingerprint: fingerprint, model_name: generated.model, diagnosis_version: PHASE6_DIAGNOSIS_VERSION, created_at: new Date().toISOString() };
+    await storeDiagnosis(row);
+    return res.json({ status: 'success', eligible: true, cached: false, interpretation: row, evidence: packet });
+  } catch { return res.status(503).json({ status: 'error', error: 'AI interpretation is temporarily unavailable.' }); }
+});
+
 router.get('/video/:videoId/concepts/:concept/diagnosis', async (req: Request, res: Response) => {
   try {
     const videoId = String(req.params.videoId);
@@ -430,6 +483,13 @@ router.post('/video/:videoId/response-workflow/:workflowId/resolution', async (r
     if (typeof resolved !== 'boolean') return res.status(400).json({ status: 'error', error: 'resolved must be true or false.' });
     await setWorkflowResolution(String(req.params.videoId), String(req.params.workflowId), resolved);
     return res.json({ status: 'success', resolved });
+  } catch (error) { return res.status(500).json({ status: 'error', error: 'Something went wrong' }); }
+});
+
+router.post('/video/:videoId/response-workflow/:workflowId/snooze', async (req: Request, res: Response) => {
+  try {
+    await snoozeWorkflow(String(req.params.videoId), String(req.params.workflowId));
+    return res.json({ status: 'success', snoozed: true });
   } catch (error) { return res.status(500).json({ status: 'error', error: 'Something went wrong' }); }
 });
 

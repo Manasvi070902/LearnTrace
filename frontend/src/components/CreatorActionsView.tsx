@@ -1,5 +1,5 @@
 import { ReactNode, useEffect, useMemo, useRef, useState } from 'react';
-import { assessCreatorReply, generateConceptDiagnosis, generateResponseDraft, getConceptDiagnosis, getCreatorActions, getResponseWorkflow, setResponseWorkflowResolution } from '../services/api';
+import { assessCreatorReply, generateTopicDiagnosis, generateResponseDraft, getTopicDiagnosis, getCreatorActions, getResponseWorkflow, setResponseWorkflowResolution } from '../services/api';
 import { AiInterpretation, CreatorAction, CreatorActionsResponse, CreatorReplyContext, ResponseDraftMode, ResponseWorkflowItem, ResponseWorkflowResponse } from '../types';
 import { LearnTraceIcon, LearnTraceIconName } from './LearnTraceIcon';
 
@@ -454,7 +454,7 @@ function InsightDrawer({ action, response, creatorReply, videoId, onClose, onWor
     let active = true;
     setDiagnosis(null); setDiagnosisEligible(false); setDiagnosisChecked(false); setDiagnosisMessage(null); setDiagnosisError(null);
     if (!learning || !action.concept) return () => { active = false; };
-    void getConceptDiagnosis(videoId, action.concept)
+    void getTopicDiagnosis(videoId, action.concept, action.evidenceIds)
       .then((result) => {
         if (!active) return;
         setDiagnosisChecked(true);
@@ -486,7 +486,7 @@ function InsightDrawer({ action, response, creatorReply, videoId, onClose, onWor
     if (!action.concept || generatingDiagnosis) return;
     setGeneratingDiagnosis(true); setDiagnosisError(null);
     try {
-      const result = await generateConceptDiagnosis(videoId, action.concept);
+      const result = await generateTopicDiagnosis(videoId, action.concept, action.evidenceIds);
       if (!result.eligible || !result.interpretation) throw new Error(result.message || 'AI interpretation is not available for this evidence yet.');
       setDiagnosis(result.interpretation);
       setDiagnosisEligible(true);
