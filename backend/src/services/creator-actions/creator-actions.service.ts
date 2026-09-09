@@ -87,17 +87,32 @@ function isPeerExplanation(signal: AudienceSignal): boolean {
   return hasExplanation && (hasLearningStructure || text.length >= 180);
 }
 
+function hasActionableFeedbackLanguage(text: string): boolean {
+  // The model's `feedback` label alone is not enough. A comment belongs in
+  // Video Feedback only when it contains a concrete critique or improvement
+  // request about the video/teaching—not when it merely reacts positively or
+  // discusses a teacher, textbook, or another viewer's point.
+  const directRequest = /\b(would benefit|could you|could be better|you should (add|explain|show|cover|improve)|please (add|explain|show|cover|improve|walk through|clarify)|more (examples|detail|explanation)|less (content|talking|acting)|better (title|explanation|example))\b/.test(text);
+  const directProblem = /\b(too (fast|slow|long|short)|hard to (follow|understand|hear|read)|difficult to (follow|understand)|not clear|unclear|confusing|missing|lacks?|needs? improvement|can t hear|cannot hear)\b/.test(text);
+  const audioProblem = /\b(audio|sound|microphone|volume)\b.{0,40}\b(too|low|poor|bad|unclear|quiet)\b/.test(text);
+  const visualProblem = /\b(visual|slide|screen|font|text)\b.{0,40}\b(too|small|hard to read|unclear|poor|bad)\b/.test(text);
+  return directRequest || directProblem || audioProblem || visualProblem;
+}
+
 function isActionableFeedback(signal: AudienceSignal): boolean {
-  if (signal.intent !== 'feedback') return false;
-  if (!signal.is_reply) return true;
+  return signal.intent === 'feedback' && hasActionableFeedbackLanguage(normalizedText(signal.comment_text));
+}
+
+/** A mislabelled feedback comment can still be useful positive audience context. */
+function isPositiveReaction(signal: AudienceSignal): boolean {
   const text = normalizedText(signal.comment_text);
-  return /\b(audio|sound|microphone|volume|visual|slide|screen|font|pace|speed|too fast|too slow|walk through|clarify|could you|should|please|need)\b/.test(text);
+  return !signal.is_reply && /\b(amazing|awesome|wonderful|love|enjoy|enjoying|thank you|thanks|great|good stuff|helpful|clear|well explained|appreciate|mindblowing)\b/.test(text)
+    && !hasActionableFeedbackLanguage(text);
 }
 
 /** A compliment can contain a clear improvement request; it must not become a teaching strength. */
 function praiseContainsConstructiveFeedback(signal: AudienceSignal): boolean {
-  const text = normalizedText(signal.comment_text);
-  return /\b(would benefit|should|could be|needs? to|hard for|hard to|less content|over acting|more prescriptive|better title|naming should|improve|could improve)\b/.test(text);
+  return hasActionableFeedbackLanguage(normalizedText(signal.comment_text));
 }
 
 /** Assign exactly one creator-facing disposition to every analyzed record. */
@@ -109,7 +124,7 @@ export function deriveProductDisposition(signal: AudienceSignal): ProductDisposi
   if (domain === 'curriculum_navigation') return 'curriculum_navigation';
   if (signal.intent === 'feedback') return isActionableFeedback(signal)
     ? 'actionable_feedback'
-    : isPeerExplanation(signal) ? 'peer_discussion' : 'other_useful';
+    : isPositiveReaction(signal) ? 'positive_signal' : isPeerExplanation(signal) ? 'peer_discussion' : 'other_useful';
   if (signal.intent === 'praise') return praiseContainsConstructiveFeedback(signal) ? 'actionable_feedback' : 'positive_signal';
   if (isPeerExplanation(signal)) return 'peer_discussion';
   if (signal.intent === 'noise') return 'noise';
@@ -185,6 +200,7 @@ function makeAction(
   category: CreatorAction['category'],
   theme: string,
   signals: AudienceSignal[],
+  idKey = theme,
 ): CreatorAction {
   const strength = evidenceStrength(signals.length);
   const evidence = signals.map((signal) => ({
@@ -213,7 +229,10 @@ function makeAction(
     ? `Continue using ${theme.toLocaleLowerCase()} in future lessons.`
     : template.action;
   return {
-    id: `${category}:${normalizedText(theme) || 'general'}`,
+    // Some individual feedback cards intentionally share the neutral display
+    // theme “presentation feedback”. Their grouping key includes the actual
+    // comment, and the persisted workflow ID must retain that uniqueness.
+    id: `${category}:${normalizedText(idKey) || 'general'}`,
     category,
     title: template.title,
     summary,
@@ -252,7 +271,7 @@ function groupSignals(signals: AudienceSignal[], disposition: CreatorAction['cat
     groups.set(key, [...(groups.get(key) || []), signal]);
   }
   const actions = [...groups.entries()]
-    .map(([, members]) => makeAction(disposition, signalTheme(members[0], disposition), members))
+    .map(([key, members]) => makeAction(disposition, signalTheme(members[0], disposition), members, key))
     .filter((action) => action.evidenceIds.length > 0);
   if (disposition === 'positive_signal' && generalPositiveSignals.length > 0) {
     const action = makeAction(disposition, 'general teaching appreciation', generalPositiveSignals);
@@ -365,21 +384,35 @@ function buildUnclusteredLearningInsights(signals: AudienceSignal[], clusters: L
   });
 }
 
+/**
+ * BigQuery should already return one latest analysis per comment, but creator
+ * views must remain correct if an import or legacy row introduces a duplicate.
+ */
+function uniqueSignalsByCommentId(signals: AudienceSignal[]): AudienceSignal[] {
+  const seen = new Set<string>();
+  return signals.filter((signal) => {
+    if (!signal.comment_id || seen.has(signal.comment_id)) return false;
+    seen.add(signal.comment_id);
+    return true;
+  });
+}
+
 export function buildCreatorActions(
   signals: AudienceSignal[],
   clusters: LearningCluster[],
   frictionScores: FrictionRow[],
   diagnoses = new Map<string, AiInterpretation>(),
 ): CreatorActionsResult {
+  const uniqueSignals = uniqueSignalsByCommentId(signals);
   const dispositionGroups = new Map<ProductDisposition, AudienceSignal[]>();
   for (const disposition of DISPOSITIONS) dispositionGroups.set(disposition, []);
-  for (const signal of signals) {
+  for (const signal of uniqueSignals) {
     const disposition = deriveProductDisposition(signal);
     dispositionGroups.get(disposition)!.push(signal);
   }
   const learningInsights = [
     ...buildLearningInsights(clusters, frictionScores, diagnoses),
-    ...buildUnclusteredLearningInsights(signals, clusters),
+    ...buildUnclusteredLearningInsights(uniqueSignals, clusters),
   ];
   const technicalBarriers = groupSignals(dispositionGroups.get('technical')!, 'technical');
   const curriculumNavigation = groupSignals(dispositionGroups.get('curriculum_navigation')!, 'curriculum_navigation');
@@ -396,7 +429,7 @@ export function buildCreatorActions(
   return {
     audienceOverview: {
       ...audienceOverview,
-      analyzed: signals.length,
+      analyzed: uniqueSignals.length,
       recurringLearningQuestions: clusters.filter((cluster) => cluster.question_count >= 2).length,
     },
     creatorActions,

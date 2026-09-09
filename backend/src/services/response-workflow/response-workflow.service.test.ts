@@ -40,4 +40,11 @@ describe('response workflow', () => {
     expect(repeated).toMatchObject({ primaryDraftMode: 'public_clarification', secondaryDraftMode: 'individual_reply' });
     expect(individual).toMatchObject({ primaryDraftMode: 'individual_reply', secondaryDraftMode: null });
   });
+
+  it('keeps an individual video-feedback comment in Needs response', () => {
+    const feedback = { ...action, id: 'feedback-1', category: 'actionable_feedback', title: 'Improvement Opportunity', concept: 'presentation feedback', canonicalQuestion: null, supportingSignalCount: 1, recurringQuestionCount: 0 };
+    const items = buildResponseWorkflowItems('video-1', [feedback], [{ comment_id: 'c1', parent_comment_id: null, comment_text: 'A clearer title would help.', is_reply: false }], null);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ resolutionStatus: 'needs_response', primaryDraftMode: 'feedback_acknowledgement' });
+  });
 });

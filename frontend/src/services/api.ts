@@ -152,14 +152,16 @@ export async function generateConceptDiagnosis(videoId: string, concept: string)
 
 /** Loads cached creator-facing signals only; this endpoint never generates AI content. */
 export async function getCreatorActions(videoId: string): Promise<CreatorActionsResponse> {
-  const response = await fetch(`${API_BASE_URL}/analyze/video/${encodeURIComponent(videoId)}/creator-actions`);
+  const response = await fetch(`${API_BASE_URL}/analyze/video/${encodeURIComponent(videoId)}/creator-actions`, { cache: 'no-store' });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || 'Could not load creator actions.');
   return data as CreatorActionsResponse;
 }
 
 export async function getResponseWorkflow(videoId: string): Promise<ResponseWorkflowResponse> {
-  const response = await fetch(`${API_BASE_URL}/analyze/video/${encodeURIComponent(videoId)}/response-workflow`);
+  // Workflow state changes as insights are processed; never let a browser or
+  // CDN reuse an earlier zero-count response.
+  const response = await fetch(`${API_BASE_URL}/analyze/video/${encodeURIComponent(videoId)}/response-workflow`, { cache: 'no-store' });
   const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Could not load response workflow.'); return data;
 }
 export async function setResponseWorkflowResolution(videoId: string, workflowId: string, resolved: boolean): Promise<void> {

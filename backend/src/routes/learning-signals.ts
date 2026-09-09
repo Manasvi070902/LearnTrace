@@ -43,10 +43,14 @@ export function buildAnalysisCoveragePlan(
   analyzedCommentIds: Set<string>,
   batchSize = getAnalysisBatchSize()
 ): AnalysisCoveragePlan {
-  const unanalyzed = comments.filter((comment) => !analyzedCommentIds.has(comment.comment_id));
+  // A source import can contain the same YouTube comment more than once.
+  // Selection is always based on unique comment IDs, so “Analyze more” can
+  // never submit two copies of a comment in one batch.
+  const uniqueComments = [...new Map(comments.map((comment) => [comment.comment_id, comment])).values()];
+  const unanalyzed = uniqueComments.filter((comment) => !analyzedCommentIds.has(comment.comment_id));
   const newConversationsRequired = Math.min(batchSize, unanalyzed.length);
   return {
-    availableConversations: comments.length,
+    availableConversations: uniqueComments.length,
     alreadyAnalyzed: analyzedCommentIds.size,
     targetAnalyzed: analyzedCommentIds.size + newConversationsRequired,
     newConversationsRequired,
@@ -76,12 +80,18 @@ function selectFromBuckets(comments: SourceComment[], limit: number): SourceComm
 router.post('/video/:videoId/learning-signals', async (req: Request, res: Response) => {
   const videoId = typeof req.params.videoId === 'string' ? req.params.videoId : '';
   if (!videoId) return res.status(400).json({ status: 'error', error: 'Missing videoId.' });
+  // Acquire the in-process lock before the first await. This prevents two
+  // near-simultaneous clicks from both planning the same “next” batch.
+  if (activeAnalysis || activeVideos.has(videoId)) return res.status(429).json({ status: 'error', error: 'An analysis is already running. Try again later.' });
+  activeVideos.add(videoId);
+  activeAnalysis = true;
 
   try {
-    if (!(await videoExists(videoId))) return res.status(404).json({ status: 'error', error: 'Video was not found in BigQuery.' });
-    if (activeAnalysis || activeVideos.has(videoId)) return res.status(429).json({ status: 'error', error: 'An analysis is already running. Try again later.' });
-    activeVideos.add(videoId);
-    activeAnalysis = true;
+    if (!(await videoExists(videoId))) {
+      activeVideos.delete(videoId);
+      activeAnalysis = false;
+      return res.status(404).json({ status: 'error', error: 'Video was not found in BigQuery.' });
+    }
     const runId = randomUUID();
     const startedAt = new Date().toISOString();
     const available = await getCommentsForVideo(videoId);

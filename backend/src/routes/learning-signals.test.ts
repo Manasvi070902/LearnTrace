@@ -36,4 +36,11 @@ describe('analysis coverage planning', () => {
     expect(plan.selected).toHaveLength(100);
     expect(plan.selected.every((comment) => Number(comment.comment_id.split('-')[1]) > 150)).toBe(true);
   });
+
+  it('does not submit duplicate source rows as separate comments', () => {
+    const duplicateSource = [...comments.slice(0, 100), { ...comments[0] }, { ...comments[1] }];
+    const plan = buildAnalysisCoveragePlan(duplicateSource, new Set(), 100);
+    expect(plan.availableConversations).toBe(100);
+    expect(new Set(plan.selected.map((comment) => comment.comment_id)).size).toBe(100);
+  });
 });

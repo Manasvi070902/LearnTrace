@@ -1,5 +1,5 @@
 import { COMMENT_ANALYSIS_PROMPT, PROMPT_VERSION } from '../../prompts/comment-analysis.prompt';
-import { DEFAULT_CLASSIFICATION_MODEL, getAvailabilityFallbackModel, getClassificationModel } from './model-policy';
+import { DEFAULT_CLASSIFICATION_MODEL, getClassificationAvailabilityFallbackModel, getClassificationModel } from './model-policy';
 
 export const DEFAULT_GEMINI_MODEL = DEFAULT_CLASSIFICATION_MODEL;
 export const GEMINI_BATCH_SIZE = 50;
@@ -252,7 +252,7 @@ export async function analyzeBatch(
           await new Promise((resolve) => setTimeout(resolve, retryDelayMs(error)));
           continue;
         }
-        const fallback = getAvailabilityFallbackModel();
+        const fallback = getClassificationAvailabilityFallbackModel();
         if (!usedAvailabilityFallback && fallback !== model) {
           usedAvailabilityFallback = true;
           model = fallback;

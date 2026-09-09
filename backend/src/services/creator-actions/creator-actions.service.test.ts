@@ -53,6 +53,20 @@ describe('Creator Actions', () => {
     expect(deriveProductDisposition(signal({ intent: 'praise', comment_text: 'Amazing video, but it would benefit from a clearer title.' }))).toBe('actionable_feedback');
   });
 
+  it('keeps a mislabelled positive reaction out of Video Feedback', () => {
+    expect(deriveProductDisposition(signal({ intent: 'feedback', comment_text: 'The next one is the last one? Nooo! I was enjoying this series so much!' }))).toBe('positive_signal');
+    expect(deriveProductDisposition(signal({ intent: 'feedback', comment_text: "My professor doesn't actually lecture; we are told to watch videos." }))).toBe('other_useful');
+  });
+
+  it('does not duplicate a stored comment in either creator-facing tab', () => {
+    const feedback = signal({ comment_id: 'duplicate-comment', intent: 'praise', comment_text: 'Amazing video, but it would benefit from a clearer title.' });
+    const result = buildCreatorActions([feedback, { ...feedback }], [], []);
+    expect(result.audienceOverview.analyzed).toBe(1);
+    expect(result.improvementOpportunities).toHaveLength(1);
+    expect(result.improvementOpportunities[0].supportingSignalCount).toBe(1);
+    expect(result.positiveSignals).toEqual([]);
+  });
+
   it('labels an isolated learning cluster as emerging without friction or AI', () => {
     const action = buildCreatorActions([], [cluster('one', 1)], []).learningInsights[0];
     expect(action.title).toBe('Emerging Learning Question');
@@ -111,12 +125,13 @@ describe('Creator Actions', () => {
 
   it('does not merge generic feedback fallback comments into false recurrence', () => {
     const result = buildCreatorActions([
-      signal({ comment_id: 'feedback-1', intent: 'feedback', comment_text: 'I have a suggestion about this video.' }),
+      signal({ comment_id: 'feedback-1', intent: 'feedback', comment_text: 'Please explain this part again.' }),
       signal({ comment_id: 'feedback-2', intent: 'feedback', comment_text: 'This could be better.' }),
     ], [], []);
 
     expect(result.improvementOpportunities).toHaveLength(2);
     expect(result.improvementOpportunities.every((action) => action.supportingSignalCount === 1)).toBe(true);
+    expect(new Set(result.improvementOpportunities.map((action) => action.id)).size).toBe(2);
   });
 
   it('groups identical generic feedback comments as repeated evidence', () => {

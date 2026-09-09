@@ -54,6 +54,10 @@ function needsCreatorResponse(action: CreatorAction): boolean {
   if (action.category === 'learning' || action.category === 'technical' || action.category === 'curriculum_navigation') {
     return Boolean(action.canonicalQuestion?.trim());
   }
+  // Feedback is an explicit creator-facing signal even when only one learner
+  // raises it. It needs an acknowledgement draft rather than disappearing
+  // from the Needs response workflow after grouping/deduplication changes.
+  if (action.category === 'actionable_feedback') return true;
   const theme = (action.concept || action.title).trim().toLocaleLowerCase();
   return action.supportingSignalCount >= 2 && !genericFeedbackThemes.has(theme);
 }
