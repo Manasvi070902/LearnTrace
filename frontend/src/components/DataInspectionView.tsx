@@ -23,6 +23,9 @@ export function DataInspectionView({ data, onOpenChannel }: DataInspectionViewPr
   const coverage = reportedComments && reportedComments > 0
     ? (totalConversations / reportedComments) * 100
     : null;
+  const missingRecords = reportedComments && reportedComments > totalConversations
+    ? reportedComments - totalConversations
+    : 0;
 
   // Rehydrate the creator dashboard from stored analysis when it already
   // exists. These requests do not generate additional provider work.
@@ -126,9 +129,9 @@ export function DataInspectionView({ data, onOpenChannel }: DataInspectionViewPr
             <div className="conversation-summary-card">
               <strong>{totalConversations.toLocaleString()} public conversations found</strong>
               <div className="compact-conversation-stats">
-                <span><LearnTraceIcon name="comment" size={16} /> <b>{totalCommentsFetched.toLocaleString()}</b> comments</span><span><LearnTraceIcon name="reply" size={16} /> <b>{totalRepliesFetched.toLocaleString()}</b> replies</span><span><LearnTraceIcon name="users" size={16} /> <b>{totalConversations.toLocaleString()}</b> conversations</span><span><LearnTraceIcon name="activity" size={16} /> <b>{coverage === null ? '—' : `${coverage.toFixed(1)}%`}</b> publicly available <button className="stats-info-button" type="button" aria-label="About public availability" title="LearnTrace can analyze conversations publicly available through YouTube's public API."><LearnTraceIcon name="info" size={14} /></button></span>
+                <span><LearnTraceIcon name="comment" size={16} /> <b>{totalCommentsFetched.toLocaleString()}</b> comments</span><span><LearnTraceIcon name="reply" size={16} /> <b>{totalRepliesFetched.toLocaleString()}</b> replies</span><span><LearnTraceIcon name="users" size={16} /> <b>{totalConversations.toLocaleString()}</b> conversations</span><span><LearnTraceIcon name="activity" size={16} /> <b>{coverage === null ? '—' : `${coverage.toFixed(1)}%`}</b> fetched <button className="stats-info-button" type="button" aria-label="About fetched-comment coverage" title={reportedComments === undefined ? 'YouTube did not provide a total comment count for this saved video.' : `YouTube reported ${reportedComments.toLocaleString()} comments. LearnTrace retrieved ${totalConversations.toLocaleString()}${missingRecords ? `; ${missingRecords.toLocaleString()} may be deleted, moderated, or unavailable through YouTube's API.` : '.'}`}><LearnTraceIcon name="info" size={14} /></button></span>
               </div>
-              {reportedComments !== undefined && <small>YouTube reports {reportedComments.toLocaleString()} total comments.</small>}
+              {reportedComments !== undefined && <small>{totalConversations.toLocaleString()} of {reportedComments.toLocaleString()} comments fetched{missingRecords ? ` (${missingRecords.toLocaleString()} unavailable).` : '.'}</small>}
             </div>
           </div>
         </div>

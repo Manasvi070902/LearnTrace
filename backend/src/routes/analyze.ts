@@ -89,7 +89,11 @@ router.post('/video', async (req: Request, res: Response) => {
 
     if (result.video) {
       try {
-        const persistResult = await persistAnalysisResult(result.video, result.comments);
+        const persistResult = await persistAnalysisResult(
+          result.video,
+          result.comments,
+          result.youtubeCommentCount
+        );
         bigqueryStatus = {
           status: 'success',
           videoStored: persistResult.videoStored,

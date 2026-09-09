@@ -14,6 +14,10 @@ export const VIDEOS_TABLE_SCHEMA: TableField[] = [
   { name: 'published_at',  type: 'TIMESTAMP', mode: 'REQUIRED' },
   { name: 'view_count',    type: 'INT64',     mode: 'NULLABLE' },
   { name: 'duration',      type: 'STRING',    mode: 'NULLABLE' },
+  // The public count reported by YouTube when this video's comments were fetched.
+  // This must be stored separately from our retrieved rows: some public comments
+  // cannot be returned by commentThreads.list.
+  { name: 'youtube_comment_count', type: 'INT64', mode: 'NULLABLE' },
   { name: 'analyzed_at',   type: 'TIMESTAMP', mode: 'REQUIRED' },
 ];
 

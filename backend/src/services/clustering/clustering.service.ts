@@ -10,11 +10,11 @@ import { cosineSimilarity } from '../embedding/embedding.service';
 import { areQuestionSignaturesCompatible, deriveQuestionSignature, QuestionSignature } from './question-signature.service';
 
 /**
- * v5 keeps question-task compatibility and complete-link cohesion while using
+ * v6 keeps question-task compatibility and complete-link cohesion while using
  * a modestly more tolerant threshold for ordinary paraphrases. Derived Phase
  * 5/6 results from earlier versions must be recomputed.
  */
-export const CLUSTERING_VERSION = 'v5';
+export const CLUSTERING_VERSION = 'v6';
 
 export function getClusterSimilarityThreshold(): number {
   return Number(process.env.QUESTION_CLUSTER_SIMILARITY_THRESHOLD || 0.70);
@@ -162,6 +162,35 @@ function rolesAreCompatible(members: QuestionEmbedding[]): boolean {
   );
 }
 
+const SUBJECT_STOP_WORDS = new Set([
+  'what', 'which', 'when', 'where', 'who', 'why', 'how', 'does', 'this', 'that', 'these', 'those',
+  'the', 'and', 'for', 'from', 'with', 'into', 'about', 'can', 'could', 'should', 'would', 'please',
+  'use', 'used', 'using', 'get', 'give', 'tell', 'need', 'want', 'question', 'questions', 'help',
+]);
+
+/**
+ * Broad model concepts (for example "BigQuery") are useful labels, but they
+ * are not proof that two questions concern the same learner need. When both
+ * questions contain specific subject words beyond their shared concept, at
+ * least one of those words must overlap before embeddings may cluster them.
+ */
+function specificSubjectWords(question: QuestionEmbedding): Set<string> {
+  const conceptWords = new Set((question.concept || '').toLocaleLowerCase().match(/[\p{L}\p{N}]+/gu) || []);
+  return new Set(
+    (question.canonical_question.toLocaleLowerCase().match(/[\p{L}\p{N}]+/gu) || [])
+      .filter((word) => word.length > 2 && !SUBJECT_STOP_WORDS.has(word) && !conceptWords.has(word))
+  );
+}
+
+function hasCompatibleSubject(left: QuestionEmbedding, right: QuestionEmbedding): boolean {
+  const leftWords = specificSubjectWords(left);
+  const rightWords = specificSubjectWords(right);
+  // Preserve embedding-based clustering when a question has no meaningful
+  // subject terms to compare. Otherwise, a broad shared concept is insufficient.
+  if (!leftWords.size || !rightWords.size) return true;
+  return [...leftWords].some((word) => rightWords.has(word));
+}
+
 function compareMergeCandidates(left: ClusterState, right: ClusterState): number {
   const combined = createClusterState([...left.members, ...right.members]);
   const representativeSimilarity = cosineSimilarity(left.representative.embedding, right.representative.embedding);
@@ -205,6 +234,9 @@ export function clusterQuestions(
           representativeSimilarity >= threshold
           && cohesion.minimumPairwiseSimilarity >= threshold
           && rolesAreCompatible(members)
+          && members.every((member, memberIndex) =>
+            members.slice(memberIndex + 1).every((other) => hasCompatibleSubject(member, other))
+          )
         ) {
           candidates.push({
             leftIndex,

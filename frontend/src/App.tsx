@@ -17,6 +17,7 @@ export default function App() {
   const [analysisResult, setAnalysisResult] = useState<AnalyzeVideoResponse | null>(null);
   const [channelId, setChannelId] = useState<string | null>(() => /^\/channel\/(UC[A-Za-z0-9_-]{22})$/.exec(window.location.pathname)?.[1] || null);
   const [fromChannel, setFromChannel] = useState(false);
+  const [sourceChannelId, setSourceChannelId] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,20 +75,30 @@ export default function App() {
     setAnalysisResult(null);
     setChannelId(null);
     setFromChannel(false);
+    setSourceChannelId(null);
     setError(null);
     setUrl('');
     if (window.location.pathname !== '/') window.history.pushState({}, '', '/');
   };
 
-  const openAnalysis = (data: AnalyzeVideoResponse, openedFromChannel = false) => { setAnalysisResult(data); setChannelId(null); setFromChannel(openedFromChannel); };
-  const openChannelAnalysis = (nextChannelId: string) => { setAnalysisResult(null); setChannelId(nextChannelId); setFromChannel(false); window.history.pushState({}, '', `/channel/${nextChannelId}`); };
+  const returnToSourceChannel = () => {
+    if (!sourceChannelId) return handleReset();
+    setAnalysisResult(null); setFromChannel(false); setSourceChannelId(null); setError(null);
+    setChannelId(sourceChannelId);
+    if (window.location.pathname !== `/channel/${sourceChannelId}`) window.history.pushState({}, '', `/channel/${sourceChannelId}`);
+  };
+  const openAnalysis = (data: AnalyzeVideoResponse, openedFromChannel = false) => {
+    setAnalysisResult(data); setFromChannel(openedFromChannel);
+    setSourceChannelId(openedFromChannel ? channelId : null);
+  };
+  const openChannelAnalysis = (nextChannelId: string) => { setAnalysisResult(null); setChannelId(nextChannelId); setFromChannel(false); setSourceChannelId(null); window.history.pushState({}, '', `/channel/${nextChannelId}`); };
   const analyzeFromChannel = async (videoUrl: string) => {
-    setChannelId(null); setFromChannel(false); setUrl(videoUrl); setLoading(true); setError(null); window.history.pushState({}, '', '/');
+    setUrl(videoUrl); setLoading(true); setError(null); setFromChannel(true); setSourceChannelId(channelId);
     try {
       const response = await analyzeVideo(videoUrl);
-      if (response.status === 'error') setError(friendlyRequestError(undefined, response.error));
+      if (response.status === 'error') throw new Error(friendlyRequestError(undefined, response.error).message);
       else setAnalysisResult(response);
-    } catch { setError(friendlyRequestError()); }
+    } catch (error) { throw error instanceof Error ? error : new Error('Video analysis is temporarily unavailable.'); }
     finally { setLoading(false); }
   };
 
@@ -110,7 +121,7 @@ if (trace.gapDetected) { renderHeatmap(); updateMetrics(); }`}
           LearnTrace
         </div>
         {analysisResult
-          ? <button type="button" className="header-back-button" onClick={() => fromChannel ? window.history.back() : handleReset()}>&larr; {fromChannel ? 'Back to channel' : 'Back to videos'}</button>
+          ? <button type="button" className="header-back-button" onClick={() => fromChannel ? returnToSourceChannel() : handleReset()}>&larr; {fromChannel ? 'Back to channel' : 'Back to videos'}</button>
           : <span className="subtitle-tag">Learning Observability for Educational Content</span>}
       </header>
 

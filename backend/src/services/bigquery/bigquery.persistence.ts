@@ -16,11 +16,14 @@ export interface PersistenceResult {
  * Uses MERGE DML to guarantee idempotency — re-analyzing the same video
  * updates the existing row rather than inserting a duplicate.
  */
-export async function upsertVideo(video: YouTubeVideoMetadata): Promise<void> {
+export async function upsertVideo(
+  video: YouTubeVideoMetadata,
+  youtubeCommentCount?: number
+): Promise<void> {
   const datasetId = process.env.BIGQUERY_DATASET!;
   const projectId = process.env.GOOGLE_CLOUD_PROJECT_ID!;
   const bq = getBigQueryClient();
-  const row = mapVideoToRow(video);
+  const row = mapVideoToRow(video, undefined, youtubeCommentCount);
 
   const query = `
     MERGE \`${projectId}.${datasetId}.${TABLE_NAMES.VIDEOS}\` AS target
@@ -33,6 +36,7 @@ export async function upsertVideo(video: YouTubeVideoMetadata): Promise<void> {
         TIMESTAMP(@published_at) AS published_at,
         @view_count   AS view_count,
         @duration     AS duration,
+        @youtube_comment_count AS youtube_comment_count,
         TIMESTAMP(@analyzed_at) AS analyzed_at
     ) AS source
     ON target.video_id = source.video_id
@@ -44,11 +48,12 @@ export async function upsertVideo(video: YouTubeVideoMetadata): Promise<void> {
         published_at  = source.published_at,
         view_count    = source.view_count,
         duration      = source.duration,
+        youtube_comment_count = source.youtube_comment_count,
         analyzed_at   = source.analyzed_at
     WHEN NOT MATCHED THEN
-      INSERT (video_id, title, channel_id, channel_title, published_at, view_count, duration, analyzed_at)
+      INSERT (video_id, title, channel_id, channel_title, published_at, view_count, duration, youtube_comment_count, analyzed_at)
       VALUES (source.video_id, source.title, source.channel_id, source.channel_title,
-              source.published_at, source.view_count, source.duration, source.analyzed_at)
+              source.published_at, source.view_count, source.duration, source.youtube_comment_count, source.analyzed_at)
   `;
 
   await bq.query({
@@ -61,6 +66,7 @@ export async function upsertVideo(video: YouTubeVideoMetadata): Promise<void> {
       published_at:  row.published_at,
       view_count:    row.view_count,
       duration:      row.duration,
+      youtube_comment_count: row.youtube_comment_count,
       analyzed_at:   row.analyzed_at,
     },
     location: process.env.BIGQUERY_LOCATION,
@@ -201,9 +207,10 @@ function escapeSql(value: string): string {
  */
 export async function persistAnalysisResult(
   video: YouTubeVideoMetadata,
-  comments: YouTubeComment[]
+  comments: YouTubeComment[],
+  youtubeCommentCount?: number
 ): Promise<PersistenceResult> {
-  await upsertVideo(video);
+  await upsertVideo(video, youtubeCommentCount);
   const commentsStored = await upsertComments(comments, video.videoId);
   return {
     videoStored: true,

@@ -112,10 +112,14 @@ describe('Creator Actions', () => {
     const first = { ...cluster('one', 5), cluster_label: 'Which diagramming tool is used?', primary_concept: 'Diagramming tool' };
     const duplicate = { ...cluster('two', 3), cluster_label: 'What app is used to make the diagrams?', primary_concept: 'Diagramming tool' };
     const third = { ...cluster('three', 3), cluster_label: 'What is the drawing program?', primary_concept: 'Diagramming tool' };
-    const merged = groupClustersIntoSemanticTopics([first, duplicate, third]);
+    const embeddings = new Map<string, number[]>();
+    for (const item of first.evidence) embeddings.set(item.comment_id, [1, 0]);
+    for (const item of duplicate.evidence) embeddings.set(item.comment_id, [0.8, 0.6]);
+    for (const item of third.evidence) embeddings.set(item.comment_id, [0.8, 0.6]);
+    const merged = groupClustersIntoSemanticTopics([first, duplicate, third], embeddings);
     expect(merged).toHaveLength(1);
     expect(merged[0].question_count).toBe(11);
-    expect(buildCreatorActions([], [first, duplicate, third], []).learningInsights).toHaveLength(1);
+    expect(buildCreatorActions([], [first, duplicate, third], [], new Map(), embeddings).learningInsights).toHaveLength(1);
   });
 
   it('groups compatible tool-identification paraphrases using stored embeddings', () => {
@@ -134,6 +138,17 @@ describe('Creator Actions', () => {
     for (const item of diagramming.evidence) embeddings.set(item.comment_id, [1, 0]);
     for (const item of migration.evidence) embeddings.set(item.comment_id, [0.9, 0.435889894]);
     expect(groupClustersIntoSemanticTopics([diagramming, migration], embeddings)).toHaveLength(2);
+  });
+
+  it('does not merge unrelated questions that only share a broad product concept', () => {
+    const pricing = { ...cluster('pricing', 1), primary_concept: 'BigQuery', cluster_label: 'When should I consider BigQuery flat rate pricing?' };
+    const gift = { ...cluster('gift', 1), primary_concept: 'BigQuery', cluster_label: 'What is the best gift that BigQuery offers?' };
+    const logs = { ...cluster('logs', 1), primary_concept: 'BigQuery', cluster_label: 'Can I use GCP logs as a source in BigQuery?' };
+    const embeddings = new Map<string, number[]>();
+    for (const item of pricing.evidence) embeddings.set(item.comment_id, [1, 0]);
+    for (const item of gift.evidence) embeddings.set(item.comment_id, [0.85, 0.526782687]);
+    for (const item of logs.evidence) embeddings.set(item.comment_id, [0.85, 0.526782687]);
+    expect(groupClustersIntoSemanticTopics([pricing, gift, logs], embeddings)).toHaveLength(3);
   });
 
   it('aggregates technical, curriculum, content, and feedback signals without treating them as friction', () => {

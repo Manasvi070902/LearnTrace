@@ -1,6 +1,7 @@
 import { getBigQueryClient } from './bigquery.client';
 import { TABLE_NAMES } from './bigquery.schema';
 import { AnalyzeVideoResponse } from '../youtube/youtube.types';
+import { fetchVideoMetadata } from '../youtube/youtube.service';
 
 /**
  * Statistics returned by the BigQuery verification endpoint.
@@ -65,19 +66,37 @@ export async function getVideoStats(videoId: string): Promise<VideoStats | null>
 }
 
 /**
- * Rehydrates an already stored video for read-only views. This deliberately
- * reads BigQuery only: it never contacts YouTube or any AI provider.
+ * Rehydrates an already stored video for read-only views. It never invokes AI.
+ * Old rows predate youtube_comment_count, so they make one lightweight YouTube
+ * metadata request to avoid presenting the stored row count as a false 100%.
  */
 export async function getCachedVideoAnalysis(videoId: string): Promise<AnalyzeVideoResponse | null> {
   const datasetId = process.env.BIGQUERY_DATASET!;
   const projectId = process.env.GOOGLE_CLOUD_PROJECT_ID!;
   const bq = getBigQueryClient();
   const [videoRows] = await bq.query({
-    query: `SELECT video_id, title, channel_id, channel_title, CAST(published_at AS STRING) AS published_at, CAST(view_count AS STRING) AS view_count, duration FROM \`${projectId}.${datasetId}.${TABLE_NAMES.VIDEOS}\` WHERE video_id = @video_id LIMIT 1`,
+    query: `SELECT video_id, title, channel_id, channel_title, CAST(published_at AS STRING) AS published_at, CAST(view_count AS STRING) AS view_count, duration, youtube_comment_count FROM \`${projectId}.${datasetId}.${TABLE_NAMES.VIDEOS}\` WHERE video_id = @video_id LIMIT 1`,
     params: { video_id: videoId }, location: process.env.BIGQUERY_LOCATION,
   });
   const video = videoRows?.[0];
   if (!video) return null;
+
+  let reportedCommentCount: number | undefined = video.youtube_comment_count === null || video.youtube_comment_count === undefined
+    ? undefined
+    : Number(video.youtube_comment_count);
+
+  if (reportedCommentCount === undefined) {
+    const apiKey = process.env.YOUTUBE_API_KEY;
+    if (apiKey) {
+      try {
+        const metadata = await fetchVideoMetadata(videoId, apiKey);
+        const count = Number(metadata.commentCount);
+        if (Number.isFinite(count) && count >= 0) reportedCommentCount = count;
+      } catch (error) {
+        console.warn(`[BigQuery] Could not refresh YouTube comment count for cached video '${videoId}'.`, error);
+      }
+    }
+  }
 
   const [commentRows] = await bq.query({
     query: `SELECT comment_id, parent_comment_id, comment_text, CAST(published_at AS STRING) AS published_at, like_count, reply_count, is_reply, author_name, author_profile_image_url FROM \`${projectId}.${datasetId}.${TABLE_NAMES.COMMENTS}\` WHERE video_id = @video_id ORDER BY published_at, comment_id`,
@@ -105,6 +124,7 @@ export async function getCachedVideoAnalysis(videoId: string): Promise<AnalyzeVi
       videoId: video.video_id, title: video.title, channelId: video.channel_id,
       channelTitle: video.channel_title, publishedAt: video.published_at,
       viewCount: video.view_count || undefined, duration: video.duration || undefined,
+      commentCount: reportedCommentCount === undefined ? undefined : String(reportedCommentCount),
       // Thumbnails are not persisted in the current schema. Use YouTube's
       // standard derived URL without changing that schema.
       thumbnailUrl: `https://i.ytimg.com/vi/${encodeURIComponent(videoId)}/hqdefault.jpg`,
@@ -113,8 +133,12 @@ export async function getCachedVideoAnalysis(videoId: string): Promise<AnalyzeVi
     totalRepliesFetched,
     totalRepliesExpected: replies.length,
     missingReplies: 0,
-    youtubeCommentCount: comments.length + totalRepliesFetched,
-    missingRecords: 0,
+    // Do not substitute our stored count here. That made incomplete cached
+    // retrievals appear as 100% coverage (for example 192/192 instead of 192/194).
+    youtubeCommentCount: reportedCommentCount,
+    missingRecords: reportedCommentCount === undefined
+      ? undefined
+      : Math.max(0, reportedCommentCount - (comments.length + totalRepliesFetched)),
     comments,
     commentsDisabled: false,
   };

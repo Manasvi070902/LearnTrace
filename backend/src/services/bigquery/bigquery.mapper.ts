@@ -11,6 +11,7 @@ export interface VideoRow {
   published_at: string; // ISO 8601 string — BigQuery TIMESTAMP accepts this format
   view_count: number | null;
   duration: string | null;
+  youtube_comment_count: number | null;
   analyzed_at: string;
 }
 
@@ -39,7 +40,8 @@ export interface CommentRow {
  */
 export function mapVideoToRow(
   video: YouTubeVideoMetadata,
-  analyzedAt: string = new Date().toISOString()
+  analyzedAt: string = new Date().toISOString(),
+  youtubeCommentCount?: number
 ): VideoRow {
   return {
     video_id: video.videoId,
@@ -49,6 +51,9 @@ export function mapVideoToRow(
     published_at: video.publishedAt,
     view_count: video.viewCount !== undefined ? parseInt(video.viewCount, 10) : null,
     duration: video.duration ?? null,
+    youtube_comment_count: Number.isFinite(youtubeCommentCount)
+      ? Math.max(0, Math.floor(youtubeCommentCount!))
+      : null,
     analyzed_at: analyzedAt,
   };
 }

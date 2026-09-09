@@ -92,6 +92,21 @@ function isPriority(action: CreatorAction): boolean {
   return action.supportingSignalCount >= 2 && ['technical', 'curriculum_navigation', 'content_opportunity', 'actionable_feedback'].includes(action.category);
 }
 
+/** Keep the creator-facing priority list aligned with the evidence badges. */
+function creatorPriorityTier(action: CreatorAction): number {
+  if (action.category === 'learning') {
+    const level = learningEvidenceLevel(action);
+    return level === 'attention' ? 3 : level === 'repeated' ? 2 : 1;
+  }
+  return action.supportingSignalCount >= 3 ? 1 : 0;
+}
+
+function compareCreatorPriorities(left: CreatorAction, right: CreatorAction): number {
+  return creatorPriorityTier(right) - creatorPriorityTier(left)
+    || right.supportingSignalCount - left.supportingSignalCount
+    || displayActionTitle(left).localeCompare(displayActionTitle(right));
+}
+
 export function CreatorActionsView({ videoId }: CreatorActionsViewProps) {
   const [data, setData] = useState<CreatorActionsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -130,7 +145,9 @@ export function CreatorActionsView({ videoId }: CreatorActionsViewProps) {
   const responseByInsight = useMemo(() => new Map(responseItems.map((item) => [item.sourceInsightId, item])), [responseItems]);
   const creatorRepliesByInsight = useMemo(() => new Map((data?.creatorReplies || []).map((reply) => [reply.sourceInsightId, reply])), [data]);
   const needsResponse = useMemo(() => responseItems.filter((item) => item.resolutionStatus === 'needs_response' || item.resolutionStatus === 'unclear'), [responseItems]);
-  const priorities = useMemo(() => data ? (data.creatorActions || []).filter(isPriority).slice(0, 3) : [], [data]);
+  const priorities = useMemo(() => data
+    ? [...(data.creatorActions || [])].filter(isPriority).sort(compareCreatorPriorities).slice(0, 3)
+    : [], [data]);
   const chooseCategory = (category: CategoryKey, insightId: string | null = null, shouldScroll = true) => {
     if (!insightId && selectedCategory === category) {
       setSelectedCategory(null); setOpenInsight(null); return;
@@ -209,7 +226,9 @@ function priorityCategory(action: CreatorAction): { label: string; icon: LearnTr
 function PriorityItem({ action, response, index, onReview }: { action: CreatorAction; response?: ResponseWorkflowItem; index: number; onReview: () => void }) {
   const category = priorityCategory(action);
   const severeLearning = action.category === 'learning' && ['High', 'Critical'].includes(action.learningFrictionStatus || '');
-  return <button type="button" className={`priority-item priority-category-${action.category} ${severeLearning ? 'priority-high' : ''}`} onClick={onReview}><span className="priority-number">{String(index + 1).padStart(2, '0')}</span><span className="priority-copy"><span className="priority-category"><LearnTraceIcon name={category.icon} size={14} /> {category.label}</span><strong>{priorityDisplayTitle(action)}</strong><small>{category.count}</small>{response?.resolutionStatus === 'needs_response' && <em className="response-status-pill">Needs response</em>}</span><span className="priority-chevron">›</span></button>;
+  const learningLevel = action.category === 'learning' ? learningEvidenceLevel(action) : null;
+  const evidenceLabel = learningLevel === 'attention' ? 'Needs attention' : learningLevel === 'repeated' ? 'Repeated' : learningLevel === 'individual' ? 'Individual' : category.label;
+  return <button type="button" className={`priority-item priority-category-${action.category} ${learningLevel ? `priority-evidence-${learningLevel}` : ''} ${severeLearning ? 'priority-high' : ''}`} onClick={onReview}><span className="priority-number">{String(index + 1).padStart(2, '0')}</span><span className="priority-copy"><span className="priority-category"><LearnTraceIcon name={category.icon} size={14} /> {evidenceLabel}</span><strong>{priorityDisplayTitle(action)}</strong><small>{category.count}</small>{response?.resolutionStatus === 'needs_response' && <em className="response-status-pill">Needs response</em>}</span><span className="priority-chevron">›</span></button>;
 }
 
 

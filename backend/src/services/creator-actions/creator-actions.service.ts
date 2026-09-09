@@ -354,7 +354,7 @@ export function getSemanticTopicSimilarityThreshold(): number {
 }
 
 function conceptWords(cluster: LearningCluster): Set<string> {
-  return new Set(normalizedText(`${cluster.primary_concept} ${cluster.cluster_label}`).split(' ').filter((word) => word.length > 2 && !['what', 'which', 'does', 'this', 'that', 'the', 'and', 'for', 'from', 'with', 'video', 'used', 'use', 'anyone', 'know', 'can', 'get', 'guide', 'tool', 'app', 'application', 'program', 'software'].includes(word)));
+  return new Set(normalizedText(`${cluster.primary_concept} ${cluster.cluster_label}`).split(' ').filter((word) => word.length > 2 && !['what', 'which', 'when', 'where', 'who', 'why', 'how', 'does', 'this', 'that', 'the', 'and', 'for', 'from', 'with', 'into', 'about', 'video', 'used', 'use', 'using', 'anyone', 'know', 'can', 'get', 'guide', 'tool', 'app', 'application', 'program', 'software', 'question', 'help'].includes(word)));
 }
 
 function clusterVector(cluster: LearningCluster, embeddings: ReadonlyMap<string, number[]>): number[] | null {
@@ -381,21 +381,31 @@ function clustersCanShareTopic(left: LearningCluster, right: LearningCluster, em
   const leftRole = deriveQuestionSignature(left.cluster_label);
   const rightRole = deriveQuestionSignature(right.cluster_label);
   if (!areQuestionSignaturesCompatible(leftRole, rightRole)) return false;
-  if (leftConcept === rightConcept) return true;
-
-  // Different model labels must still share a meaningful descriptive word
-  // before an embedding can join them. Resource nouns such as "tool" are too
-  // broad on their own and are handled by the narrower purpose check below.
+  // A shared broad model concept (for example "BigQuery") is not enough.
+  // Clusters must also share a specific subject word before their embeddings
+  // can form one creator-facing topic. Resource nouns are handled by the
+  // narrower purpose check below.
   const leftWords = conceptWords(left);
-  const hasSharedTopicWord = [...conceptWords(right)].some((word) => leftWords.has(word));
+  const rightWords = conceptWords(right);
+  const sharedBroadConceptWords = new Set(
+    normalizedText(left.primary_concept).split(' ').filter((word) =>
+      normalizedText(right.primary_concept).split(' ').includes(word)
+    )
+  );
+  const leftSpecificWords = new Set([...leftWords].filter((word) => !sharedBroadConceptWords.has(word)));
+  const rightSpecificWords = new Set([...rightWords].filter((word) => !sharedBroadConceptWords.has(word)));
+  const hasSharedTopicWord = [...rightSpecificWords].some((word) => leftSpecificWords.has(word));
   const sharesToolIdentificationPurpose = questionPurpose(left) === 'tool_identification'
     && questionPurpose(right) === 'tool_identification';
-  if (!hasSharedTopicWord && !sharesToolIdentificationPurpose) return false;
+  // Labels with no extractable specific words retain the conservative
+  // embedding path; otherwise, avoid merging on a broad concept alone.
+  const subjectIsUnknown = !leftSpecificWords.size && !rightSpecificWords.size;
+  if (!hasSharedTopicWord && !sharesToolIdentificationPurpose && !subjectIsUnknown) return false;
   const leftVector = clusterVector(left, embeddings);
   const rightVector = clusterVector(right, embeddings);
   if (!leftVector || !rightVector) return false;
   const similarity = cosineSimilarity(leftVector, rightVector);
-  if (hasSharedTopicWord && similarity >= getSemanticTopicSimilarityThreshold()) return true;
+  if ((hasSharedTopicWord || subjectIsUnknown) && similarity >= getSemanticTopicSimilarityThreshold()) return true;
   // Short resource-identification questions are often paraphrased with very
   // little shared vocabulary ("drawing" vs "diagramming"). Treat them as the
   // same topic only when both ask for the name of a tool/app/etc. and their
@@ -403,9 +413,15 @@ function clustersCanShareTopic(left: LearningCluster, right: LearningCluster, em
   return sharesToolIdentificationPurpose && similarity >= 0.54;
 }
 
-function mergeTopicMembers(key: string, members: LearningCluster[]): LearningCluster {
+function mergeTopicMembers(members: LearningCluster[]): LearningCluster {
   if (members.length === 1) return members[0];
-    const first = members[0];
+    // The action's concept is also the key used by the diagnosis endpoint.
+    // Anchor a merged display topic to its largest strict cluster, not to an
+    // arbitrary cluster-id ordering, so the full qualifying evidence remains
+    // discoverable for AI interpretation.
+    const anchor = [...members].sort((left, right) =>
+      right.question_count - left.question_count || left.cluster_id.localeCompare(right.cluster_id)
+    )[0];
     const evidenceByCommentId = new Map<string, LearningCluster['evidence'][number]>();
     for (const member of members) {
       for (const item of member.evidence) {
@@ -416,8 +432,8 @@ function mergeTopicMembers(key: string, members: LearningCluster[]): LearningClu
     const questionCount = evidenceByCommentId.size || memberTotal;
     const weight = Math.max(1, memberTotal);
   return {
-      ...first,
-      cluster_id: `merged:${key}`,
+      ...anchor,
+      cluster_id: `merged:${normalizeConcept(anchor.primary_concept)}`,
       question_count: questionCount,
       average_confusion_strength: members.reduce((sum, member) => sum + member.average_confusion_strength * member.question_count, 0) / weight,
       average_confidence: members.reduce((sum, member) => sum + member.average_confidence * member.question_count, 0) / weight,
@@ -442,7 +458,7 @@ export function groupClustersIntoSemanticTopics(
     if (compatibleTopic) compatibleTopic.push(cluster);
     else topics.push([cluster]);
   }
-  return topics.map((members) => mergeTopicMembers(normalizeConcept(members[0].primary_concept), members));
+  return topics.map((members) => mergeTopicMembers(members));
 }
 
 /**

@@ -148,7 +148,7 @@ describe('Clustering Service', () => {
     it('keeps a genuinely equivalent alternative-strategy misconception together', () => {
       const questions = [
         createQuestion('a', 'Why does the simple alternating strategy fail?', [1, 0]),
-        createQuestion('b', 'Why can’t I compare the odd and even positions instead?', [0.9, Math.sqrt(0.19)]),
+        createQuestion('b', 'Why can’t I use the alternating positions instead?', [0.9, Math.sqrt(0.19)]),
       ];
 
       const clusters = clusterQuestions(questions, 0.75);
