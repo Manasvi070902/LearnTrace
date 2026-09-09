@@ -5,7 +5,7 @@
 // YouTube Video IDs are 11 characters long and consist of alphanumeric characters, hyphens, and underscores.
 const YOUTUBE_VIDEO_ID_REGEX = /^[a-zA-Z0-9_-]{11}$/;
 
-export type YouTubeChannelReference = { kind: 'id' | 'handle' | 'username'; value: string };
+export type YouTubeChannelReference = { kind: 'id' | 'handle' | 'username' | 'custom'; value: string };
 
 /** Extracts a public channel reference without guessing a channel ID. */
 export function extractChannelReference(input: string): YouTubeChannelReference | null {
@@ -20,6 +20,8 @@ export function extractChannelReference(input: string): YouTubeChannelReference 
     if (first === 'channel' && /^UC[A-Za-z0-9_-]{22}$/.test(second || '')) return { kind: 'id', value: second! };
     if (first?.startsWith('@') && /^@[A-Za-z0-9._-]+$/.test(first)) return { kind: 'handle', value: first.slice(1) };
     if (first === 'user' && second && /^[A-Za-z0-9._-]+$/.test(second)) return { kind: 'username', value: second };
+    // Legacy custom URLs (/c/name) are still commonly shared by creators.
+    if (first === 'c' && second && /^[A-Za-z0-9._-]+$/.test(second)) return { kind: 'custom', value: second };
   } catch { return null; }
   return null;
 }

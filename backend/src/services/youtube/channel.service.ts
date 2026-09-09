@@ -26,6 +26,18 @@ export async function resolvePublicChannel(input: string): Promise<ChannelMetada
   if (reference.kind === 'id') params.id = reference.value;
   if (reference.kind === 'handle') params.forHandle = reference.value;
   if (reference.kind === 'username') params.forUsername = reference.value;
+  // Most legacy /c URLs now match a modern handle, which is the inexpensive
+  // and unambiguous lookup path. Fall back to channel search only when needed.
+  if (reference.kind === 'custom') {
+    const handleResponse = await axios.get(`${BASE_URL}/channels`, { params: { ...params, forHandle: reference.value }, timeout: 10000 });
+    if (handleResponse.data?.items?.length) return mapChannel(handleResponse.data.items[0]);
+    const searchResponse = await axios.get(`${BASE_URL}/search`, { params: { part: 'snippet', type: 'channel', q: reference.value, maxResults: 5, key: apiKey() }, timeout: 10000 });
+    const channelId = searchResponse.data?.items?.find((item: any) => item.id?.channelId)?.id?.channelId;
+    if (!channelId) throw new Error('Channel not found');
+    const channelResponse = await axios.get(`${BASE_URL}/channels`, { params: { part: 'snippet,contentDetails,statistics', id: channelId, key: apiKey() }, timeout: 10000 });
+    if (!channelResponse.data?.items?.length) throw new Error('Channel not found');
+    return mapChannel(channelResponse.data.items[0]);
+  }
   const response = await axios.get(`${BASE_URL}/channels`, { params, timeout: 10000 });
   if (!response.data?.items?.length) throw new Error('Channel not found');
   return mapChannel(response.data.items[0]);

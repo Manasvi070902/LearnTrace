@@ -1,4 +1,4 @@
-import { extractVideoId } from './youtube.parser';
+import { extractChannelReference, extractVideoId } from './youtube.parser';
 
 describe('YouTube URL Parser - extractVideoId', () => {
   test('extracts video ID from standard youtube.com watch URL', () => {
@@ -51,5 +51,11 @@ describe('YouTube URL Parser - extractVideoId', () => {
     expect(extractVideoId('')).toBeNull();
     expect(extractVideoId(null as any)).toBeNull();
     expect(extractVideoId(undefined as any)).toBeNull();
+  });
+});
+
+describe('YouTube URL Parser - extractChannelReference', () => {
+  test('accepts a legacy custom channel URL', () => {
+    expect(extractChannelReference('https://www.youtube.com/c/pushpakmanwani')).toEqual({ kind: 'custom', value: 'pushpakmanwani' });
   });
 });
