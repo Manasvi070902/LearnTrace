@@ -20,7 +20,10 @@ const options = { location: process.env.BIGQUERY_LOCATION };
 
 export async function getWorkflowStates(videoId: string): Promise<StoredWorkflowState[]> {
   const [rows] = await getBigQueryClient().query({
-    query: `SELECT workflow_id, video_id, resolution_status, resolution_source, CAST(resolved_at AS STRING) AS resolved_at, creator_reply_comment_id, community_reply_comment_id FROM ${table(TABLE_NAMES.RESPONSE_WORKFLOW)} WHERE video_id = @video_id`,
+    query: `SELECT workflow_id, video_id, resolution_status, resolution_source, CAST(resolved_at AS STRING) AS resolved_at, creator_reply_comment_id, community_reply_comment_id
+      FROM ${table(TABLE_NAMES.RESPONSE_WORKFLOW)}
+      WHERE video_id = @video_id
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY video_id, workflow_id ORDER BY updated_at DESC) = 1`,
     params: { video_id: videoId }, ...options,
   });
   return rows as StoredWorkflowState[];
@@ -63,7 +66,9 @@ export async function upsertWorkflowItems(items: ResponseWorkflowItem[], videoId
 export async function setWorkflowResolution(videoId: string, workflowId: string, resolved: boolean): Promise<void> {
   await getBigQueryClient().query({
     query: `UPDATE ${table(TABLE_NAMES.RESPONSE_WORKFLOW)} SET resolution_status = @status, resolution_source = @source, resolved_at = IF(@resolved, CURRENT_TIMESTAMP(), NULL), updated_at = CURRENT_TIMESTAMP() WHERE video_id = @video_id AND workflow_id = @workflow_id`,
-    params: { video_id: videoId, workflow_id: workflowId, resolved, status: resolved ? 'resolved' : 'needs_response', source: resolved ? 'manual' : null }, ...options,
+    // Keep a concrete source for both manual actions. BigQuery cannot always
+    // infer the type of a null query parameter during a restore update.
+    params: { video_id: videoId, workflow_id: workflowId, resolved, status: resolved ? 'resolved' : 'needs_response', source: 'manual' }, ...options,
   });
 }
 

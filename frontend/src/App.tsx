@@ -7,7 +7,7 @@ import { ChannelOverview } from './components/ChannelOverview';
 import { BrandMark } from './components/BrandMark';
 
 const DEMO_CHANNEL_URL = 'https://www.youtube.com/@googlecloudtech';
-const DEMO_THUMBNAIL = 'https://i.ytimg.com/vi/IeMYQ-qJeK4/hqdefault.jpg';
+const DEMO_CHANNEL_LOGO = 'https://www.gstatic.com/images/branding/product/2x/google_cloud_48dp.png';
 // Replace this with your GitHub profile or repository URL before publishing.
 const GITHUB_URL = 'https://github.com/your-github-username';
 const LINKEDIN_URL = 'https://www.linkedin.com/in/manasvi-alimchandani-934b49197/';
@@ -176,7 +176,7 @@ if (trace.gapDetected) { renderHeatmap(); updateMetrics(); }`}
               <h2 id="demo-heading">Try a pre-tested example</h2>
               <p>Explore a real channel with analyzed videos, recurring themes, and action items.</p>
               <button type="button" className="demo-card" onClick={() => void handleDemo()} disabled={demoLoading}>
-                <img src={DEMO_THUMBNAIL} alt="Google Cloud channel example thumbnail" />
+                <span className="demo-channel-logo"><img src={DEMO_CHANNEL_LOGO} alt="Google Cloud Tech channel logo" /></span>
                 <span className="demo-card-copy"><strong>Google Cloud Tech</strong><em>YouTube channel example</em><small>Explore channel-wide learner themes, pending responses, and video-level evidence.</small></span>
                 <span className="demo-card-cta">{demoLoading ? 'Loading…' : 'Explore channel →'}</span>
               </button>

@@ -115,25 +115,31 @@ function actionQueueType(value: string): string {
 async function getChannelActionQueue(channelId: string): Promise<ChannelActionQueue> {
   const table = (name: string) => `\`${process.env.GOOGLE_CLOUD_PROJECT_ID}.${process.env.BIGQUERY_DATASET}.${name}\``;
   const [rows] = await getBigQueryClient().query({ query: `
-    SELECT w.workflow_id, w.video_id, v.title AS video_title, w.title, w.suggested_response_type,
+    WITH latest_workflows AS (
+      SELECT w.*, ROW_NUMBER() OVER (PARTITION BY w.video_id, w.workflow_id ORDER BY w.updated_at DESC) AS row_number
+      FROM ${table(TABLE_NAMES.RESPONSE_WORKFLOW)} w
+    )
+    SELECT w.workflow_id, w.video_id, v.title AS video_title, w.source_category, w.title, w.normalized_need, w.suggested_response_type,
       w.priority, w.resolution_status, w.supporting_comment_ids
-    FROM ${table(TABLE_NAMES.RESPONSE_WORKFLOW)} w
+    FROM latest_workflows w
     JOIN ${table(TABLE_NAMES.VIDEOS)} v ON v.video_id = w.video_id
-    WHERE v.channel_id = @channel_id AND w.resolution_status IN ('needs_response', 'unclear', 'snoozed')
+    WHERE w.row_number = 1 AND v.channel_id = @channel_id AND w.resolution_status IN ('needs_response', 'unclear', 'snoozed')
   `, params: { channel_id: channelId }, location: process.env.BIGQUERY_LOCATION });
   const priorityRank: Record<string, number> = { high: 0, medium: 1, low: 2 };
   const rawItems = (rows || []).map((row: any) => ({
-    workflowId: row.workflow_id, videoId: row.video_id, videoTitle: row.video_title || 'Analyzed video',
+    workflowId: row.workflow_id, videoId: row.video_id, videoTitle: row.video_title || 'Analyzed video', sourceCategory: row.source_category || 'other',
     title: row.title || 'Audience follow-up', actionType: actionQueueType(row.suggested_response_type || ''),
     priority: row.priority === 'high' || row.priority === 'low' ? row.priority : 'medium', resolutionStatus: row.resolution_status,
+    normalizedNeed: typeof row.normalized_need === 'string' && row.normalized_need.trim() ? row.normalized_need.trim() : null,
     supportingCommentIds: Array.isArray(row.supporting_comment_ids) ? row.supporting_comment_ids : [],
   }));
   // Workflows are an audit layer and can be split by strict source clusters.
-  // The channel queue is a creator-facing action layer, so exact same-video
-  // needs with the same reply strategy are represented as one task.
+  // Merge only a true duplicate creator need. A generic fallback title such as
+  // “Improvement opportunity” alone must never collapse unrelated feedback.
   const grouped = new Map<string, typeof rawItems[number][]>();
   for (const item of rawItems) {
-    const key = `${item.resolutionStatus}::${item.videoId}::${item.actionType.toLowerCase()}::${item.title.trim().toLowerCase().replace(/\s+/g, ' ')}`;
+    const normalizedNeed = item.normalizedNeed?.toLowerCase().replace(/\s+/g, ' ') || item.workflowId;
+    const key = `${item.resolutionStatus}::${item.videoId}::${item.sourceCategory}::${item.actionType.toLowerCase()}::${item.title.trim().toLowerCase().replace(/\s+/g, ' ')}::${normalizedNeed}`;
     grouped.set(key, [...(grouped.get(key) || []), item]);
   }
   const groupedItems: ChannelActionQueueItem[] = [...grouped.values()].map((group) => {
@@ -167,9 +173,13 @@ async function getChannelDispositionBreakdowns(channelId: string, videoRows: Arr
       WHERE a.row_number = 1
     `, params: { channel_id: channelId, prompt_version: PROMPT_VERSION }, location: process.env.BIGQUERY_LOCATION }),
     getBigQueryClient().query({ query: `
-      SELECT w.video_id, COUNT(*) value FROM ${table(TABLE_NAMES.RESPONSE_WORKFLOW)} w
+      WITH latest_workflows AS (
+        SELECT w.*, ROW_NUMBER() OVER (PARTITION BY w.video_id, w.workflow_id ORDER BY w.updated_at DESC) AS row_number
+        FROM ${table(TABLE_NAMES.RESPONSE_WORKFLOW)} w
+      )
+      SELECT w.video_id, COUNT(*) value FROM latest_workflows w
       JOIN ${table(TABLE_NAMES.VIDEOS)} v ON v.video_id = w.video_id
-      WHERE v.channel_id = @channel_id AND w.resolution_status IN ('needs_response', 'unclear') GROUP BY w.video_id
+      WHERE w.row_number = 1 AND v.channel_id = @channel_id AND w.resolution_status IN ('needs_response', 'unclear', 'snoozed') GROUP BY w.video_id
     `, params: { channel_id: channelId }, location: process.env.BIGQUERY_LOCATION }),
   ]);
   const values = new Map(videoRows.map((video) => [video.video_id, { difficulties: 0, requests: 0, strengths: 0, response: 0 }]));
@@ -196,11 +206,11 @@ export async function getChannelOverview(channelId: string) {
   const channelVideoRows = (rows || []) as Array<{ video_id: string; title: string }>;
   const result = await getChannelInsights(channelVideoRows.map((row) => row.video_id));
   const [breakdowns, crossVideoPatterns, channelActionQueue] = await Promise.all([getChannelDispositionBreakdowns(channelId, channelVideoRows), getChannelSemanticPatterns(channelVideoRows), getChannelActionQueue(channelId)]);
-  // Open follow-ups is a creator-task metric. Use the same deduplicated task
-  // collection as the action queue rather than raw workflow row counts.
-  breakdowns.response = channelActionQueue.byVideo;
+  // The overview must match a video's “Needs response” total: it counts every
+  // active workflow, including items that have been snoozed. The action queue
+  // intentionally groups related workflows into fewer creator-facing tasks.
   const totals = (key: ChannelOverviewKey) => breakdowns[key].reduce((sum, item) => sum + item.value, 0);
-  const cards = [{ key: 'difficulties' as const, label: 'Learner questions', value: totals('difficulties') }, { key: 'requests' as const, label: 'Content requests', value: totals('requests') }, { key: 'strengths' as const, label: 'Teaching strengths', value: totals('strengths') }, { key: 'response' as const, label: 'Open follow-ups', value: totals('response') }].filter((card) => card.value > 0);
+  const cards = [{ key: 'difficulties' as const, label: 'Learner questions', value: totals('difficulties') }, { key: 'requests' as const, label: 'Content requests', value: totals('requests') }, { key: 'strengths' as const, label: 'Teaching strengths', value: totals('strengths') }, { key: 'response' as const, label: 'Needs response', value: totals('response') }].filter((card) => card.value > 0);
   return { ...result, overview: { ...result.overview, cards, breakdowns }, crossVideoPatterns, channelActionQueue };
 }
 
@@ -223,10 +233,10 @@ export async function getChannelInsights(videoIds: string[]) {
   if (!videoIds.length) return { videos: new Map<string, ChannelVideoInsight>(), overview: { analyzedVideos: 0, cards: [] as Array<{ key: string; label: string; value: number }> }, concepts: [] as Array<{ concept: string; videos: number; learners: number }> };
   const table = (name: string) => `\`${process.env.GOOGLE_CLOUD_PROJECT_ID}.${process.env.BIGQUERY_DATASET}.${name}\``;
   const [rows] = await getBigQueryClient().query({ query: `
-    WITH ids AS (SELECT video_id FROM UNNEST(@video_ids) video_id), known AS (SELECT v.video_id FROM ${table(TABLE_NAMES.VIDEOS)} v JOIN ids USING(video_id)), comments AS (SELECT video_id, COUNT(*) conversations FROM ${table(TABLE_NAMES.COMMENTS)} WHERE video_id IN (SELECT video_id FROM ids) GROUP BY video_id), needs AS (SELECT video_id, COUNT(*) needs_response FROM ${table(TABLE_NAMES.RESPONSE_WORKFLOW)} WHERE video_id IN (SELECT video_id FROM ids) AND resolution_status IN ('needs_response', 'unclear') GROUP BY video_id), latest_analysis AS (SELECT a.*, ROW_NUMBER() OVER (PARTITION BY a.video_id, a.comment_id ORDER BY a.analyzed_at DESC) AS row_number FROM ${table(TABLE_NAMES.COMMENT_ANALYSIS)} a WHERE a.video_id IN (SELECT video_id FROM known) AND a.prompt_version = @prompt_version), learning AS (SELECT video_id, COUNT(*) patterns FROM latest_analysis WHERE row_number = 1 AND is_learning_signal = TRUE GROUP BY video_id), requests AS (SELECT COUNT(*) value FROM latest_analysis WHERE row_number = 1 AND intent = 'content_request'), strengths AS (SELECT COUNT(*) value FROM latest_analysis WHERE row_number = 1 AND intent IN ('praise', 'positive_signal'))
+    WITH ids AS (SELECT video_id FROM UNNEST(@video_ids) video_id), known AS (SELECT v.video_id FROM ${table(TABLE_NAMES.VIDEOS)} v JOIN ids USING(video_id)), comments AS (SELECT video_id, COUNT(*) conversations FROM ${table(TABLE_NAMES.COMMENTS)} WHERE video_id IN (SELECT video_id FROM ids) GROUP BY video_id), latest_workflows AS (SELECT w.*, ROW_NUMBER() OVER (PARTITION BY w.video_id, w.workflow_id ORDER BY w.updated_at DESC) AS row_number FROM ${table(TABLE_NAMES.RESPONSE_WORKFLOW)} w WHERE w.video_id IN (SELECT video_id FROM ids)), needs AS (SELECT video_id, COUNT(*) needs_response FROM latest_workflows WHERE row_number = 1 AND resolution_status IN ('needs_response', 'unclear', 'snoozed') GROUP BY video_id), latest_analysis AS (SELECT a.*, ROW_NUMBER() OVER (PARTITION BY a.video_id, a.comment_id ORDER BY a.analyzed_at DESC) AS row_number FROM ${table(TABLE_NAMES.COMMENT_ANALYSIS)} a WHERE a.video_id IN (SELECT video_id FROM known) AND a.prompt_version = @prompt_version), learning AS (SELECT video_id, COUNT(*) patterns FROM latest_analysis WHERE row_number = 1 AND is_learning_signal = TRUE GROUP BY video_id), requests AS (SELECT COUNT(*) value FROM latest_analysis WHERE row_number = 1 AND intent = 'content_request'), strengths AS (SELECT COUNT(*) value FROM latest_analysis WHERE row_number = 1 AND intent IN ('praise', 'positive_signal'))
     SELECT ids.video_id, EXISTS(SELECT 1 FROM known WHERE known.video_id = ids.video_id) analyzed, IFNULL(comments.conversations, 0) conversations, IFNULL(learning.patterns, 0) patterns, IFNULL(needs.needs_response, 0) needs_response, (SELECT value FROM requests) content_requests, (SELECT value FROM strengths) teaching_strengths FROM ids LEFT JOIN comments USING(video_id) LEFT JOIN learning USING(video_id) LEFT JOIN needs USING(video_id)`, params: { video_ids: videoIds, prompt_version: PROMPT_VERSION, clustering_version: CLUSTERING_VERSION }, types: { video_ids: ['STRING'] }, location: process.env.BIGQUERY_LOCATION });
   const videos = new Map<string, ChannelVideoInsight>(); let analyzedVideos = 0; let difficulties = 0; let needsResponse = 0; let contentRequests = 0; let strengths = 0;
   for (const row of rows || []) { const analyzed = Boolean(row.analyzed); const item = { videoId: row.video_id, analyzed, conversations: Number(row.conversations), learningPatterns: Number(row.patterns), needsResponse: Number(row.needs_response) }; videos.set(item.videoId, item); if (analyzed) { analyzedVideos++; difficulties += item.learningPatterns; needsResponse += item.needsResponse; contentRequests = Number(row.content_requests || 0); strengths = Number(row.teaching_strengths || 0); } }
-  const cards = [{ key: 'difficulties', label: 'Learner questions', value: difficulties }, { key: 'requests', label: 'Content requests', value: contentRequests }, { key: 'strengths', label: 'Teaching strengths', value: strengths }, { key: 'response', label: 'Open follow-ups', value: needsResponse }].filter((card) => card.value > 0);
+  const cards = [{ key: 'difficulties', label: 'Learner questions', value: difficulties }, { key: 'requests', label: 'Content requests', value: contentRequests }, { key: 'strengths', label: 'Teaching strengths', value: strengths }, { key: 'response', label: 'Needs response', value: needsResponse }].filter((card) => card.value > 0);
   return { videos, overview: { analyzedVideos, cards }, concepts: [] as Array<{ concept: string; videos: number; learners: number }> };
 }
