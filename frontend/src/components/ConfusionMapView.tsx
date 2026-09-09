@@ -11,7 +11,9 @@ interface ConfusionMapViewProps {
 export function ConfusionMapView({ videoId, report: _report, confusionMap: _confusionMap }: ConfusionMapViewProps) {
   return (
     <section className="confusion-map-section creator-results-view">
-      <CreatorActionsView videoId={videoId} />
+      {/* A newly completed batch changes stored creator actions for the same
+          video. Remount so its cached API reads are refreshed as well. */}
+      <CreatorActionsView key={`${videoId}:${_report.aiAnalyzedComments}`} videoId={videoId} />
     </section>
   );
 }

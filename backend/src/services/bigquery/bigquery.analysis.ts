@@ -51,8 +51,14 @@ export async function getAnalyzedCommentIds(videoId: string, promptVersion: stri
 
 export async function getDailyAnalysisUsage(): Promise<{ requestsToday: number; commentsAnalyzedToday: number; cacheHitsToday: number; lastModelUsed: string | null }> {
   const bq = getBigQueryClient();
+  const usageTimeZone = process.env.GEMINI_USAGE_TIME_ZONE || 'Asia/Kolkata';
+  const batchSize = Math.max(1, Math.floor(Number(process.env.GEMINI_BATCH_SIZE || 50)));
   const [runRows] = await bq.query({
-    query: `SELECT SUM(gemini_requests) AS requests_today, SUM(IF(status = 'completed', results_stored, 0)) AS comments_analyzed_today, SUM(IF(status = 'completed', comments_cached, 0)) AS cache_hits_today FROM \`${process.env.GOOGLE_CLOUD_PROJECT_ID}.${process.env.BIGQUERY_DATASET}.${TABLE_NAMES.ANALYSIS_RUNS}\` WHERE started_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 DAY)`,
+    // Count planned completed batches, not low-level retry/fallback attempts.
+    // A temporary 503 can retry the same 50 comments but should not consume
+    // multiple units of the local daily allowance.
+    query: `SELECT SUM(IF(status = 'completed', DIV(comments_submitted + @batch_size - 1, @batch_size), 0)) AS requests_today, SUM(IF(status = 'completed', results_stored, 0)) AS comments_analyzed_today, SUM(IF(status = 'completed', comments_cached, 0)) AS cache_hits_today FROM \`${process.env.GOOGLE_CLOUD_PROJECT_ID}.${process.env.BIGQUERY_DATASET}.${TABLE_NAMES.ANALYSIS_RUNS}\` WHERE DATE(started_at, @usage_time_zone) = CURRENT_DATE(@usage_time_zone)`,
+    params: { usage_time_zone: usageTimeZone, batch_size: batchSize },
     location: process.env.BIGQUERY_LOCATION,
   });
   const [modelRows] = await bq.query({

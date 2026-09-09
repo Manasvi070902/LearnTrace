@@ -1,6 +1,6 @@
 import { ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { assessCreatorReply, generateConceptDiagnosis, generateResponseDraft, getConceptDiagnosis, getCreatorActions, getResponseWorkflow, setResponseWorkflowResolution } from '../services/api';
-import { AiInterpretation, CreatorAction, CreatorActionsResponse, CreatorReplyContext, ResponseDraftMode, ResponseWorkflowItem } from '../types';
+import { AiInterpretation, CreatorAction, CreatorActionsResponse, CreatorReplyContext, ResponseDraftMode, ResponseWorkflowItem, ResponseWorkflowResponse } from '../types';
 import { LearnTraceIcon, LearnTraceIconName } from './LearnTraceIcon';
 
 interface CreatorActionsViewProps { videoId: string; }
@@ -98,21 +98,30 @@ export function CreatorActionsView({ videoId }: CreatorActionsViewProps) {
   const [selectedCategory, setSelectedCategory] = useState<CategoryKey | null>(null);
   const [openInsight, setOpenInsight] = useState<string | null>(null);
   const [responseItems, setResponseItems] = useState<ResponseWorkflowItem[]>([]);
+  const [workflowNeedsCount, setWorkflowNeedsCount] = useState<number | null>(null);
   const [responseWorkflowError, setResponseWorkflowError] = useState<string | null>(null);
   const [responseFilter, setResponseFilter] = useState<'all' | 'needs'>('all');
   const categoryPanelRef = useRef<HTMLElement>(null);
+  const applyWorkflowResult = (result: ResponseWorkflowResponse) => {
+    const items = [...(result.needsResponse || []), ...(result.resolved || [])];
+    setResponseItems(items);
+    // The backend owns this total. Keep it separate from the rendered list so
+    // the badge remains accurate even if an item is filtered from the view.
+    setWorkflowNeedsCount(result.summary?.needsResponse ?? result.needsResponse?.length ?? 0);
+    setResponseWorkflowError(null);
+  };
   const refreshResponseWorkflow = () => getResponseWorkflow(videoId)
-    .then((result) => { setResponseItems([...(result.needsResponse || []), ...(result.resolved || [])]); setResponseWorkflowError(null); })
+    .then(applyWorkflowResult)
     .catch(() => setResponseWorkflowError('Response status is temporarily unavailable. Refresh the page after restarting the backend.'));
 
   useEffect(() => {
     let active = true;
-    setData(null); setError(null); setSelectedCategory(null); setOpenInsight(null); setResponseItems([]); setResponseWorkflowError(null); setResponseFilter('all');
+    setData(null); setError(null); setSelectedCategory(null); setOpenInsight(null); setResponseItems([]); setWorkflowNeedsCount(null); setResponseWorkflowError(null); setResponseFilter('all');
     void getCreatorActions(videoId)
       .then((result) => { if (active) setData(result); })
       .catch((loadError) => { if (active) setError(loadError instanceof Error ? loadError.message : 'Could not load audience insights.'); });
     void getResponseWorkflow(videoId)
-      .then((result) => { if (active) { setResponseItems([...(result.needsResponse || []), ...(result.resolved || [])]); setResponseWorkflowError(null); } })
+      .then((result) => { if (active) applyWorkflowResult(result); })
       .catch(() => { if (active) setResponseWorkflowError('Response status is temporarily unavailable. Refresh the page after restarting the backend.'); });
     return () => { active = false; };
   }, [videoId]);
@@ -147,7 +156,7 @@ export function CreatorActionsView({ videoId }: CreatorActionsViewProps) {
     </section>}
 
     <section className="audience-explorer">
-      <div className="audience-explorer-heading"><h3 className="audience-explorer-title">Explore your audience</h3><div className="response-filter"><button type="button" className={responseFilter === 'all' ? 'active' : ''} onClick={() => setResponseFilter('all')}>All insights</button><button type="button" className={responseFilter === 'needs' ? 'active' : ''} onClick={() => { setResponseFilter('needs'); void refreshResponseWorkflow(); }}>Needs response <b>{responseWorkflowError ? '—' : needsResponse.length}</b></button></div></div>
+      <div className="audience-explorer-heading"><h3 className="audience-explorer-title">Explore your audience</h3><div className="response-filter"><button type="button" className={responseFilter === 'all' ? 'active' : ''} onClick={() => setResponseFilter('all')}>All insights</button><button type="button" className={responseFilter === 'needs' ? 'active' : ''} onClick={() => { setResponseFilter('needs'); void refreshResponseWorkflow(); }}>Needs response <b>{responseWorkflowError ? '—' : workflowNeedsCount ?? needsResponse.length}</b></button></div></div>
     {responseWorkflowError && <p className="response-workflow-error">{responseWorkflowError}</p>}
       <div className="category-grid">{visibleCategories.map((category) => <button type="button" className={`category-card category-${category.key} ${selectedCategory === category.key ? 'selected' : ''}`} key={category.key} onClick={() => chooseCategory(category.key)} aria-pressed={selectedCategory === category.key}>
         <span className="category-heading"><span className="category-icon" aria-hidden="true"><LearnTraceIcon name={category.icon} /></span><span className="category-label">{category.label}</span></span>
