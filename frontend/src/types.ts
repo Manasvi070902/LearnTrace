@@ -257,7 +257,8 @@ export interface ChannelMetadata { channelId: string; title: string; handle?: st
 export interface ChannelVideoInsight { videoId: string; analyzed: boolean; conversations: number; learningPatterns: number; needsResponse: number; }
 export interface ChannelVideo { videoId: string; title: string; thumbnailUrl?: string; publishedAt: string; channelTitle: string; viewCount?: string; commentCount?: string; insight: ChannelVideoInsight; }
 export type ChannelOverviewKey = 'difficulties' | 'requests' | 'strengths' | 'response';
-export interface ChannelCatalogResponse { videos: ChannelVideo[]; storedVideos: ChannelVideo[]; nextPageToken?: string; overview: { analyzedVideos: number; cards: Array<{ key: ChannelOverviewKey; label: string; value: number }>; breakdowns: Record<ChannelOverviewKey, Array<{ videoId: string; title: string; value: number }>> }; concepts: Array<{ concept: string; videos: number; learners: number }>; }
+export interface ChannelCrossVideoPattern { concept: string; videos: number; supportingSignals: number; evidence: Array<{ videoId: string; title: string; supportingSignals: number; exampleQuestion?: string }> }
+export interface ChannelCatalogResponse { videos: ChannelVideo[]; storedVideos: ChannelVideo[]; nextPageToken?: string; overview: { analyzedVideos: number; cards: Array<{ key: ChannelOverviewKey; label: string; value: number }>; breakdowns: Record<ChannelOverviewKey, Array<{ videoId: string; title: string; value: number }>> }; crossVideoPatterns: ChannelCrossVideoPattern[]; }
 
 export type ResponseWorkflowStatus = 'needs_response' | 'resolved' | 'community_answered' | 'unclear';
 export type ResponseDraftMode = 'individual_reply' | 'public_clarification' | 'technical_fix' | 'learning_path_guidance' | 'request_acknowledgement' | 'feedback_acknowledgement';

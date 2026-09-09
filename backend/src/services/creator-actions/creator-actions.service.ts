@@ -94,6 +94,12 @@ function isActionableFeedback(signal: AudienceSignal): boolean {
   return /\b(audio|sound|microphone|volume|visual|slide|screen|font|pace|speed|too fast|too slow|walk through|clarify|could you|should|please|need)\b/.test(text);
 }
 
+/** A compliment can contain a clear improvement request; it must not become a teaching strength. */
+function praiseContainsConstructiveFeedback(signal: AudienceSignal): boolean {
+  const text = normalizedText(signal.comment_text);
+  return /\b(would benefit|should|could be|needs? to|hard for|hard to|less content|over acting|more prescriptive|better title|naming should|improve|could improve)\b/.test(text);
+}
+
 /** Assign exactly one creator-facing disposition to every analyzed record. */
 export function deriveProductDisposition(signal: AudienceSignal): ProductDisposition {
   if (signal.intent === 'content_request') return 'content_opportunity';
@@ -104,7 +110,7 @@ export function deriveProductDisposition(signal: AudienceSignal): ProductDisposi
   if (signal.intent === 'feedback') return isActionableFeedback(signal)
     ? 'actionable_feedback'
     : isPeerExplanation(signal) ? 'peer_discussion' : 'other_useful';
-  if (signal.intent === 'praise') return 'positive_signal';
+  if (signal.intent === 'praise') return praiseContainsConstructiveFeedback(signal) ? 'actionable_feedback' : 'positive_signal';
   if (isPeerExplanation(signal)) return 'peer_discussion';
   if (signal.intent === 'noise') return 'noise';
   return 'other_useful';
@@ -238,7 +244,9 @@ function groupSignals(signals: AudienceSignal[], disposition: CreatorAction['cat
     const normalizedTheme = normalizedText(theme) || 'general';
     // A neutral display fallback is not evidence that unrelated feedback
     // comments form a repeated theme.
-    const key = disposition === 'actionable_feedback' && normalizedTheme === 'presentation feedback'
+    const genericContentRequest = disposition === 'content_opportunity'
+      && ['learner request', 'content request', 'content opportunity', 'requested coverage', 'more content'].includes(normalizedTheme);
+    const key = (disposition === 'actionable_feedback' && normalizedTheme === 'presentation feedback') || genericContentRequest
       ? `${normalizedTheme}:${normalizedText(signal.comment_text) || signal.comment_id}`
       : normalizedTheme;
     groups.set(key, [...(groups.get(key) || []), signal]);

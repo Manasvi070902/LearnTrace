@@ -49,6 +49,10 @@ describe('Creator Actions', () => {
     expect(buildCreatorActions([signal({ intent: 'noise' })], [], []).creatorActions).toEqual([]);
   });
 
+  it('keeps compliment-led improvement feedback out of What Worked', () => {
+    expect(deriveProductDisposition(signal({ intent: 'praise', comment_text: 'Amazing video, but it would benefit from a clearer title.' }))).toBe('actionable_feedback');
+  });
+
   it('labels an isolated learning cluster as emerging without friction or AI', () => {
     const action = buildCreatorActions([], [cluster('one', 1)], []).learningInsights[0];
     expect(action.title).toBe('Emerging Learning Question');
@@ -150,6 +154,15 @@ describe('Creator Actions', () => {
 
     expect(result.contentOpportunities).toHaveLength(2);
     expect(result.contentOpportunities.map((action) => action.supportingSignalCount)).toEqual([1, 1]);
+  });
+
+  it('does not turn generic content-request labels into a fake recurring topic', () => {
+    const result = buildCreatorActions([
+      signal({ comment_id: 'request-1', intent: 'content_request', canonical_question: 'Learner request', comment_text: 'Could you make a video about diagramming tools?' }),
+      signal({ comment_id: 'request-2', intent: 'content_request', canonical_question: 'Learner request', comment_text: 'Please cover cloud architecture next.' }),
+    ], [], []);
+    expect(result.contentOpportunities).toHaveLength(2);
+    expect(result.contentOpportunities.every((action) => action.supportingSignalCount === 1)).toBe(true);
   });
 
   it('preserves the normalized course question separately from mixed raw-comment evidence', () => {

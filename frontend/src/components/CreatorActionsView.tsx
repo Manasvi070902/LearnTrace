@@ -331,12 +331,14 @@ function CategoryActionCarousel({ actions, onOpen, creatorReplies, responseItems
   const [inlineDraft, setInlineDraft] = useState('');
   const [draftingInline, setDraftingInline] = useState(false);
   const [inlineDraftError, setInlineDraftError] = useState<string | null>(null);
+  const [inlineCopied, setInlineCopied] = useState(false);
   const actionIdentity = actions.map((item) => item.id).join('|');
   const activeIndex = Math.min(index, Math.max(0, actions.length - 1));
   const action = actions[activeIndex];
   // `actions` is often a freshly filtered array. Reset only when its actual
   // contents change, never just because opening a drawer caused a re-render.
   useEffect(() => { setIndex(0); }, [actionIdentity]);
+  useEffect(() => { setInlineDraft(''); setInlineDraftError(null); setInlineCopied(false); }, [action?.id]);
   if (!action) return <p className="learning-empty-state">No audience signals in this category yet.</p>;
   const icon = CATEGORY_ICONS[action.category as Exclude<CategoryKey, 'learning'>] || 'content';
   const normalizedCourseQuestion = courseQuestion(action);
@@ -351,6 +353,7 @@ function CategoryActionCarousel({ actions, onOpen, creatorReplies, responseItems
     catch (error) { setInlineDraftError(error instanceof Error ? error.message : 'Could not draft a reply.'); }
     finally { setDraftingInline(false); }
   };
+  const copyInlineDraft = async () => { await navigator.clipboard?.writeText(inlineDraft); setInlineCopied(true); window.setTimeout(() => setInlineCopied(false), 1600); };
   const cardContent = <>
     <span className="category-feature-icon"><LearnTraceIcon name={icon} size={31} /></span>
     <div className="category-feature-copy">
@@ -359,7 +362,7 @@ function CategoryActionCarousel({ actions, onOpen, creatorReplies, responseItems
       <span className={`category-feature-evidence ${normalizedCourseQuestion ? 'normalized-course-question' : ''} ${isSingleContentRequest ? 'full-request-visible' : ''}`}>{quote ? normalizedCourseQuestion || `“${quote}”` : action.summary}</span>
       {isSingleContentRequest && creatorReply && <details className="inline-creator-reply"><summary><span>{creatorReply.avatarUrl ? <img src={creatorReply.avatarUrl} alt="" onError={(event) => { event.currentTarget.style.display = 'none'; }} /> : <i>{(creatorReply.authorName || 'C').charAt(0).toUpperCase()}</i>}</span>{creatorReply.authorName || 'Video creator'} replied <b>⌄</b></summary><p>{creatorReply.text}</p></details>}
       <span className="category-feature-footer"><span><LearnTraceIcon name="users" size={16} /> {action.supportingSignalCount} learner{action.category === 'curriculum_navigation' ? (action.supportingSignalCount === 1 ? ' asked this' : 's asked something similar') : (action.supportingSignalCount === 1 ? '' : 's')} {action.category === 'content_opportunity' ? 'requested this' : action.category === 'curriculum_navigation' ? '' : 'raised this'}</span>{isSingleContentRequest && responseItem?.resolutionStatus !== 'resolved' ? <button type="button" className="inline-draft-reply" onClick={() => void createInlineDraft()}>{draftingInline ? 'Writing a draft…' : responseItem?.hasDraft ? 'View saved acknowledgement' : 'Draft acknowledgement ✦'}</button> : <em>{isSingleContentRequest ? 'Shown inline' : action.category === 'curriculum_navigation' ? 'See original comment →' : 'View evidence →'}</em>}</span>
-      {isSingleContentRequest && inlineDraft && <div className="inline-draft-card"><label htmlFor={`inline-reply-${action.id}`}>AI-generated acknowledgement <small>Review before posting</small></label><textarea id={`inline-reply-${action.id}`} value={inlineDraft} onChange={(event) => setInlineDraft(event.target.value)} maxLength={900} /><div><button type="button" onClick={() => void createInlineDraft(true)}>Regenerate</button><button type="button" onClick={() => void navigator.clipboard?.writeText(inlineDraft)}>Copy reply</button></div></div>}
+      {isSingleContentRequest && inlineDraft && <div className="inline-draft-card"><label htmlFor={`inline-reply-${action.id}`}>AI-generated acknowledgement <small>Review before posting</small></label><textarea id={`inline-reply-${action.id}`} value={inlineDraft} onChange={(event) => setInlineDraft(event.target.value)} maxLength={900} /><div><button type="button" onClick={() => void createInlineDraft(true)}>Regenerate</button><button type="button" onClick={() => void copyInlineDraft()}>{inlineCopied ? 'Copied' : 'Copy reply'}</button></div></div>}
       {isSingleContentRequest && inlineDraftError && <p className="inline-draft-error">{inlineDraftError}</p>}
     </div>
   </>;
@@ -385,6 +388,7 @@ function InsightDrawer({ action, response, creatorReply, videoId, onClose, onWor
   const [replyDraft, setReplyDraft] = useState('');
   const [activeDraftMode, setActiveDraftMode] = useState<ResponseDraftMode | null>(null);
   const [draftingReply, setDraftingReply] = useState(false);
+  const [replyCopied, setReplyCopied] = useState(false);
   const [checkingCreatorReply, setCheckingCreatorReply] = useState(false);
   const [responseError, setResponseError] = useState<string | null>(null);
   const learning = action.category === 'learning';
@@ -413,6 +417,7 @@ function InsightDrawer({ action, response, creatorReply, videoId, onClose, onWor
     document.body.classList.add('insight-drawer-open');
     return () => document.body.classList.remove('insight-drawer-open');
   }, []);
+  useEffect(() => { setReplyDraft(''); setActiveDraftMode(null); setResponseError(null); setReplyCopied(false); }, [action.id]);
   useEffect(() => {
     let active = true;
     setDiagnosis(null); setDiagnosisEligible(false); setDiagnosisChecked(false); setDiagnosisMessage(null); setDiagnosisError(null);
@@ -466,6 +471,7 @@ function InsightDrawer({ action, response, creatorReply, videoId, onClose, onWor
     catch (error) { setResponseError(error instanceof Error ? error.message : 'A reply draft is temporarily unavailable.'); }
     finally { setDraftingReply(false); }
   };
+  const copyReplyDraft = async () => { await navigator.clipboard?.writeText(replyDraft); setReplyCopied(true); window.setTimeout(() => setReplyCopied(false), 1600); };
   const resolveResponse = async (resolved: boolean) => {
     if (!response) return;
     setResponseError(null);
@@ -500,7 +506,7 @@ function InsightDrawer({ action, response, creatorReply, videoId, onClose, onWor
         <p>{response?.creatorReplyText || creatorReply?.text}</p>
         {response?.creatorReplyAssessment ? <small className={`creator-reply-assessment assessment-${response.creatorReplyAssessment.outcome}`}><b>{response.creatorReplyAssessment.outcome === 'answered' ? 'Creator reply addresses this question.' : response.creatorReplyAssessment.outcome === 'partial' ? 'Partly addressed.' : 'Not yet addressed.'}</b> {response.creatorReplyAssessment.reason}</small> : response && response.resolutionStatus !== 'resolved' && <div className="creator-reply-check-row"><span>Reply not reviewed</span><button type="button" className="text-button creator-reply-check" disabled={checkingCreatorReply} onClick={() => void checkCreatorReply()}>{checkingCreatorReply ? 'Checking…' : 'Check with AI ✦'}</button><small>1 AI request</small></div>}
       </div>}
-      {response && (response.resolutionStatus === 'resolved' || response.resolutionStatus === 'community_answered' ? <div className="response-complete"><p className="response-responded">{response.resolutionStatus === 'community_answered' ? 'Answered by the community' : response.resolutionSource === 'creator_reply_ai_confirmed' ? 'Creator reply addresses this question.' : 'Marked resolved by you.'}</p>{!response.creatorReplyText && <p>{response.communityReplyText || 'You marked this conversation as resolved.'}</p>}<button type="button" className="text-button" onClick={() => void resolveResponse(false)}>Undo</button></div> : <><div className="response-review"><span>{response.resolutionStatus === 'unclear' ? 'REVIEW NEEDED' : 'NEEDS RESPONSE'}</span><p>Suggested response: <b>{response.suggestedResponseType}</b></p></div><button type="button" className="drawer-generate-button" disabled={draftingReply} onClick={() => void draftReply(response.primaryDraftMode)}>{draftingReply ? 'Writing a draft…' : response.cachedDraftModes?.includes(response.primaryDraftMode) ? `View saved ${draftLabel(response.primaryDraftMode).toLocaleLowerCase()}` : `${response.creatorReplyAssessment && response.creatorReplyAssessment.outcome !== 'answered' && response.primaryDraftMode === 'individual_reply' ? 'Draft a better reply' : draftLabel(response.primaryDraftMode)} ✦`}</button>{response.hasPhase6Interpretation && <aside className="response-followup"><strong>Optional next step</strong><span>This issue may benefit from another worked example or short follow-up explanation.</span></aside>}{replyDraft && activeDraftMode && <div className="reply-draft-card"><label className="ai-draft-label" htmlFor="reply-draft">AI-generated {activeDraftMode === 'public_clarification' ? 'clarification' : 'draft reply'} <small>{draftDescription(activeDraftMode)}</small></label><textarea id="reply-draft" className="reply-draft" value={replyDraft} onChange={(event) => setReplyDraft(event.target.value)} maxLength={900} /><div className="reply-draft-actions"><button type="button" onClick={() => void draftReply(activeDraftMode, true)}>Regenerate</button><button type="button" onClick={() => void navigator.clipboard?.writeText(replyDraft)}>{activeDraftMode === 'public_clarification' ? 'Copy clarification' : 'Copy reply'}</button></div></div>}<button type="button" className="text-button response-resolve" onClick={() => void resolveResponse(true)}>Mark as resolved</button></>)}
+      {response && (response.resolutionStatus === 'resolved' || response.resolutionStatus === 'community_answered' ? <div className="response-complete"><p className="response-responded">{response.resolutionStatus === 'community_answered' ? 'Answered by the community' : response.resolutionSource === 'creator_reply_ai_confirmed' ? 'Creator reply addresses this question.' : 'Marked resolved by you.'}</p>{!response.creatorReplyText && <p>{response.communityReplyText || 'You marked this conversation as resolved.'}</p>}<button type="button" className="text-button" onClick={() => void resolveResponse(false)}>Undo</button></div> : <><div className="response-review"><span>{response.resolutionStatus === 'unclear' ? 'REVIEW NEEDED' : 'NEEDS RESPONSE'}</span><p>Suggested response: <b>{response.suggestedResponseType}</b></p></div><button type="button" className="drawer-generate-button" disabled={draftingReply} onClick={() => void draftReply(response.primaryDraftMode)}>{draftingReply ? 'Writing a draft…' : response.cachedDraftModes?.includes(response.primaryDraftMode) ? `View saved ${draftLabel(response.primaryDraftMode).toLocaleLowerCase()}` : `${response.creatorReplyAssessment && response.creatorReplyAssessment.outcome !== 'answered' && response.primaryDraftMode === 'individual_reply' ? 'Draft a better reply' : draftLabel(response.primaryDraftMode)} ✦`}</button>{response.hasPhase6Interpretation && <aside className="response-followup"><strong>Optional next step</strong><span>This issue may benefit from another worked example or short follow-up explanation.</span></aside>}{replyDraft && activeDraftMode && <div className="reply-draft-card"><label className="ai-draft-label" htmlFor="reply-draft">AI-generated {activeDraftMode === 'public_clarification' ? 'clarification' : 'draft reply'} <small>{draftDescription(activeDraftMode)}</small></label><textarea id="reply-draft" className="reply-draft" value={replyDraft} onChange={(event) => setReplyDraft(event.target.value)} maxLength={900} /><div className="reply-draft-actions"><button type="button" onClick={() => void draftReply(activeDraftMode, true)}>Regenerate</button><button type="button" onClick={() => void copyReplyDraft()}>{replyCopied ? 'Copied' : activeDraftMode === 'public_clarification' ? 'Copy clarification' : 'Copy reply'}</button></div></div>}<button type="button" className="text-button response-resolve" onClick={() => void resolveResponse(true)}>Mark as resolved</button></>) }
       {responseError && <p className="drawer-diagnosis-error">{responseError}</p>}
     </section>}
     <details className="drawer-trust"><summary><LearnTraceIcon name="info" size={16} /> Why this is showing</summary><p>{course ? courseTrustText : trustText}</p></details>

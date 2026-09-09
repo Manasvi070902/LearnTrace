@@ -1,5 +1,5 @@
 import { COMMENT_ANALYSIS_PROMPT, PROMPT_VERSION } from '../../prompts/comment-analysis.prompt';
-import { DEFAULT_CLASSIFICATION_MODEL, getClassificationModel } from './model-policy';
+import { DEFAULT_CLASSIFICATION_MODEL, getAvailabilityFallbackModel, getClassificationModel } from './model-policy';
 
 export const DEFAULT_GEMINI_MODEL = DEFAULT_CLASSIFICATION_MODEL;
 export const GEMINI_BATCH_SIZE = 50;
@@ -175,6 +175,12 @@ function isTransientRateLimit(error: unknown): boolean {
   return candidate?.status === 429 && /retry|temporar|try again/i.test(message) && !isQuotaOrBillingError(error);
 }
 
+function isTemporaryProviderUnavailable(error: unknown): boolean {
+  const candidate = error as { status?: number; message?: string };
+  const message = candidate?.message || String(error);
+  return candidate?.status === 503 || /\b503\b|high demand|temporarily unavailable|service unavailable/i.test(message);
+}
+
 function retryDelayMs(error: unknown): number {
   const match = String((error as { message?: string })?.message || error).match(/retry(?: after| in)?\s+(\d+(?:\.\d+)?)\s*s/i);
   return Math.min(10_000, match ? Math.max(250, Number(match[1]) * 1000) : 1000);
@@ -196,6 +202,9 @@ export async function analyzeBatch(
   const providerBatch = createProviderBatch(comments);
   const contents = `${COMMENT_ANALYSIS_PROMPT}\n\nComments:\n${JSON.stringify(providerBatch.providerComments)}`;
   let transientRateLimitRetried = false;
+  let temporaryUnavailableRetried = false;
+  let usedAvailabilityFallback = false;
+  let model = getConfiguredGeminiModel();
   let validationRetried = false;
   for (;;) {
     try {
@@ -207,7 +216,7 @@ export async function analyzeBatch(
         const { GoogleGenAI } = await import('@google/genai');
         const ai = new GoogleGenAI({ apiKey: getRequiredApiKey() });
         const response = await ai.models.generateContent({
-          model: getConfiguredGeminiModel(),
+          model,
           contents,
           config: {
             responseMimeType: 'application/json',
@@ -236,6 +245,22 @@ export async function analyzeBatch(
       const status = (error as { status?: number }).status;
       if (status === 404) throw new Error('Configured Gemini model/API is unavailable.');
       if (status === 429 && !isTransientRateLimit(error)) throw new Error('Gemini analysis was rate limited. Please try again later.');
+      if (isTemporaryProviderUnavailable(error)) {
+        if (!temporaryUnavailableRetried) {
+          temporaryUnavailableRetried = true;
+          console.warn(`[Learning Signals] '${model}' is temporarily unavailable; retrying this batch once.`);
+          await new Promise((resolve) => setTimeout(resolve, retryDelayMs(error)));
+          continue;
+        }
+        const fallback = getAvailabilityFallbackModel();
+        if (!usedAvailabilityFallback && fallback !== model) {
+          usedAvailabilityFallback = true;
+          model = fallback;
+          console.warn(`[Learning Signals] '${getConfiguredGeminiModel()}' is still unavailable; using '${fallback}' for this batch.`);
+          continue;
+        }
+        throw error;
+      }
       if (!isTransientRateLimit(error) || transientRateLimitRetried) throw error;
       transientRateLimitRetried = true;
       await new Promise((resolve) => setTimeout(resolve, retryDelayMs(error)));

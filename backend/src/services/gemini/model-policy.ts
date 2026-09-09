@@ -1,5 +1,5 @@
-/** Central model policy: bulk understanding uses 2.5, creator-facing reasoning uses 3.6. */
-export const DEFAULT_CLASSIFICATION_MODEL = 'gemini-2.5-flash';
+/** Central model policy: 3.6 handles nuanced classification and creator-facing reasoning; Flash-Lite remains the availability fallback. */
+export const DEFAULT_CLASSIFICATION_MODEL = 'gemini-3.6-flash';
 export const DEFAULT_REASONING_MODEL = 'gemini-3.6-flash';
 export const DEFAULT_AVAILABILITY_FALLBACK_MODEL = 'gemini-3.5-flash-lite';
 
@@ -7,6 +7,7 @@ export function getClassificationModel(): string { return process.env.GEMINI_CLA
 export function getReasoningModel(): string { return process.env.GEMINI_DIAGNOSIS_MODEL?.trim() || DEFAULT_REASONING_MODEL; }
 export function getResponseModel(): string { return process.env.GEMINI_RESPONSE_MODEL?.trim() || getReasoningModel(); }
 export function getAvailabilityFallbackModel(): string { return process.env.GEMINI_AVAILABILITY_FALLBACK_MODEL?.trim() || DEFAULT_AVAILABILITY_FALLBACK_MODEL; }
+export function getClassificationAvailabilityFallbackModel(): string { return process.env.GEMINI_CLASSIFICATION_AVAILABILITY_FALLBACK_MODEL?.trim() || getAvailabilityFallbackModel(); }
 
 function isEligibleFallback(error: unknown): boolean {
   const value = error as { status?: number; code?: number; message?: string };

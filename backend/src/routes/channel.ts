@@ -39,7 +39,7 @@ router.get('/:channelId/videos', async (req: Request, res: Response) => {
         },
       })),
       overview: overview.overview,
-      concepts: overview.concepts,
+      crossVideoPatterns: overview.crossVideoPatterns,
       storedVideos,
     });
   } catch (error) { return sendChannelError(res, error, "Couldn't load the channel's videos."); }

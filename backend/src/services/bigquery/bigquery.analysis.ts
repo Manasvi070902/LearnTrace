@@ -139,24 +139,28 @@ export async function completeAnalysisRun(run: AnalysisRun): Promise<void> {
   });
 }
 
-export async function getAnalysisForVideo(videoId: string, promptVersion: string, modelName: string): Promise<CommentAnalysisRow[]> {
+/** A prompt-version change invalidates analysis; a model change does not erase or hide valid stored classifications. */
+export async function getAnalysisForVideo(videoId: string, promptVersion: string, _modelName?: string): Promise<CommentAnalysisRow[]> {
   const [rows] = await getBigQueryClient().query({
     query: `
+      WITH latest_analysis AS (
+        SELECT a.*, ROW_NUMBER() OVER (PARTITION BY a.video_id, a.comment_id ORDER BY a.analyzed_at DESC) AS row_number
+        FROM \`${process.env.GOOGLE_CLOUD_PROJECT_ID}.${process.env.BIGQUERY_DATASET}.${TABLE_NAMES.COMMENT_ANALYSIS}\` a
+        WHERE a.video_id = @video_id AND a.prompt_version = @prompt_version
+      )
       SELECT
         a.comment_id, a.video_id, a.intent, a.is_learning_signal,
         a.canonical_question, a.concept, a.confusion_strength, a.confidence,
         a.reason, a.model_name, a.prompt_version,
         CAST(a.analyzed_at AS STRING) AS analyzed_at,
         c.comment_text, c.is_reply, c.parent_comment_id
-      FROM \`${process.env.GOOGLE_CLOUD_PROJECT_ID}.${process.env.BIGQUERY_DATASET}.${TABLE_NAMES.COMMENT_ANALYSIS}\` a
+      FROM latest_analysis a
       LEFT JOIN \`${process.env.GOOGLE_CLOUD_PROJECT_ID}.${process.env.BIGQUERY_DATASET}.${TABLE_NAMES.COMMENTS}\` c
         ON c.comment_id = a.comment_id AND c.video_id = a.video_id
-      WHERE a.video_id = @video_id
-        AND a.prompt_version = @prompt_version
-        AND a.model_name = @model_name
+      WHERE a.row_number = 1
       ORDER BY a.analyzed_at, a.comment_id
     `,
-    params: { video_id: videoId, prompt_version: promptVersion, model_name: modelName }, location: process.env.BIGQUERY_LOCATION,
+    params: { video_id: videoId, prompt_version: promptVersion }, location: process.env.BIGQUERY_LOCATION,
   });
   return (rows || []).map((row: CommentAnalysisRow) => ({
     ...row,
