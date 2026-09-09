@@ -1,3 +1,5 @@
+import { getGeminiClient } from '../gemini/gemini-client';
+
 /**
  * Embedding Service
  *
@@ -13,12 +15,6 @@ export function getConfiguredEmbeddingModel(): string {
   return model;
 }
 
-function getRequiredApiKey(): string {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) throw new Error('GEMINI_API_KEY is not configured on the server.');
-  return key;
-}
-
 export interface EmbeddingResult {
   text: string;
   embedding: number[];
@@ -32,9 +28,7 @@ export interface EmbeddingResult {
 export async function generateEmbeddings(texts: string[], model = getConfiguredEmbeddingModel()): Promise<EmbeddingResult[]> {
   if (!texts.length) return [];
 
-  const apiKey = getRequiredApiKey();
-  const { GoogleGenAI } = await import('@google/genai');
-  const client = new GoogleGenAI({ apiKey });
+  const client = await getGeminiClient();
 
   const response = await client.models.embedContent({
     model,

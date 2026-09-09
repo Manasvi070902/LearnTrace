@@ -1,4 +1,4 @@
-import { AudienceSignal, buildCreatorActions, deriveProductDisposition, LearningCluster } from './creator-actions.service';
+import { AudienceSignal, buildCreatorActions, deriveProductDisposition, groupClustersIntoSemanticTopics, LearningCluster } from './creator-actions.service';
 import { FrictionRow } from '../bigquery/bigquery.friction';
 
 const signal = (overrides: Partial<AudienceSignal> = {}): AudienceSignal => ({
@@ -96,12 +96,44 @@ describe('Creator Actions', () => {
   });
 
   it('does not apply a concept-level friction score to smaller sibling clusters', () => {
-    const actions = buildCreatorActions([], [cluster('strong', 3), cluster('repeated', 2), cluster('individual', 1)], [friction()]).learningInsights;
-    expect(actions.map((action) => ({ count: action.supportingSignalCount, strength: action.evidenceStrength, score: action.learningFrictionScore }))).toEqual([
+    const actions = buildCreatorActions([], [
+      { ...cluster('strong', 3), primary_concept: 'Strong concept' },
+      { ...cluster('repeated', 2), primary_concept: 'Repeated concept' },
+      { ...cluster('individual', 1), primary_concept: 'Individual concept' },
+    ], [{ ...friction(), normalized_concept: 'strong concept' }]).learningInsights;
+    expect(actions.map((action) => ({ count: action.supportingSignalCount, strength: action.evidenceStrength, score: action.learningFrictionScore })).sort((left, right) => right.count - left.count)).toEqual([
       { count: 3, strength: 'strong', score: 72 },
       { count: 2, strength: 'recurring', score: null },
       { count: 1, strength: 'emerging', score: null },
     ]);
+  });
+
+  it('merges neighbouring clusters with the same creator-facing concept', () => {
+    const first = { ...cluster('one', 5), cluster_label: 'Which diagramming tool is used?', primary_concept: 'Diagramming tool' };
+    const duplicate = { ...cluster('two', 3), cluster_label: 'What app is used to make the diagrams?', primary_concept: 'Diagramming tool' };
+    const third = { ...cluster('three', 3), cluster_label: 'What is the drawing program?', primary_concept: 'Diagramming tool' };
+    const merged = groupClustersIntoSemanticTopics([first, duplicate, third]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].question_count).toBe(11);
+    expect(buildCreatorActions([], [first, duplicate, third], []).learningInsights).toHaveLength(1);
+  });
+
+  it('groups compatible tool-identification paraphrases using stored embeddings', () => {
+    const diagramming = { ...cluster('diagramming', 3), primary_concept: 'Diagramming tool', cluster_label: 'What tool was used to draw the diagram?' };
+    const drawing = { ...cluster('drawing', 2), primary_concept: 'Drawing tool', cluster_label: 'Does anyone know which drawing tool this is?' };
+    const embeddings = new Map<string, number[]>();
+    for (const item of diagramming.evidence) embeddings.set(item.comment_id, [1, 0]);
+    for (const item of drawing.evidence) embeddings.set(item.comment_id, [0.56, 0.828492607]);
+    expect(groupClustersIntoSemanticTopics([diagramming, drawing], embeddings)).toHaveLength(1);
+  });
+
+  it('does not merge a different tool-related request into an identification topic', () => {
+    const diagramming = { ...cluster('diagramming', 3), primary_concept: 'Diagramming tool', cluster_label: 'What tool was used to draw the diagram?' };
+    const migration = { ...cluster('migration', 2), primary_concept: 'Data migration tool', cluster_label: 'Can I get a guide for the data migration tool?' };
+    const embeddings = new Map<string, number[]>();
+    for (const item of diagramming.evidence) embeddings.set(item.comment_id, [1, 0]);
+    for (const item of migration.evidence) embeddings.set(item.comment_id, [0.9, 0.435889894]);
+    expect(groupClustersIntoSemanticTopics([diagramming, migration], embeddings)).toHaveLength(2);
   });
 
   it('aggregates technical, curriculum, content, and feedback signals without treating them as friction', () => {

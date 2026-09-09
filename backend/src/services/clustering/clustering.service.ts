@@ -10,13 +10,14 @@ import { cosineSimilarity } from '../embedding/embedding.service';
 import { areQuestionSignaturesCompatible, deriveQuestionSignature, QuestionSignature } from './question-signature.service';
 
 /**
- * v3 adds question-task compatibility to v2 complete-link cohesion. Derived
- * Phase 5/6 results from earlier versions must be recomputed.
+ * v5 keeps question-task compatibility and complete-link cohesion while using
+ * a modestly more tolerant threshold for ordinary paraphrases. Derived Phase
+ * 5/6 results from earlier versions must be recomputed.
  */
-export const CLUSTERING_VERSION = 'v4';
+export const CLUSTERING_VERSION = 'v5';
 
 export function getClusterSimilarityThreshold(): number {
-  return Number(process.env.QUESTION_CLUSTER_SIMILARITY_THRESHOLD || 0.75);
+  return Number(process.env.QUESTION_CLUSTER_SIMILARITY_THRESHOLD || 0.70);
 }
 
 export interface QuestionEmbedding {

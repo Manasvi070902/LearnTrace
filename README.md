@@ -53,8 +53,12 @@ are logged without preventing YouTube analysis from starting.
 
 #### Learning-signal analysis and coverage expansion
 
-Set `GEMINI_API_KEY` in the backend environment. The key is read only by the server;
-it is never sent to the frontend. The data inspection view's **Analyze Learning
+Set `GEMINI_API_KEY` in the backend environment, or use Vertex AI by setting
+`GEMINI_PROVIDER=vertex-ai`, `GOOGLE_CLOUD_PROJECT`, and `GOOGLE_CLOUD_LOCATION`.
+Vertex AI uses Application Default Credentials: for local development run
+`gcloud auth application-default login`; in production attach a service account
+with the Vertex AI User role instead of committing a credentials file. The Gemini
+key is read only by the server; it is never sent to the frontend. The data inspection view's **Analyze Learning
 Signals** action expands analysis to `GEMINI_TARGET_ANALYZED_CONVERSATIONS` total
 cached conversations (default `200`). It selects only the remaining unanalyzed
 comments, in deterministic diverse batches controlled by `GEMINI_BATCH_SIZE`

@@ -1,6 +1,8 @@
 import { CommentAnalysisRow } from '../bigquery/bigquery.analysis';
 import { ClusterEvidenceRow, ClusterRow, FrictionRow } from '../bigquery/bigquery.friction';
 import { normalizeConcept } from '../clustering/concept-normalizer';
+import { areQuestionSignaturesCompatible, deriveQuestionSignature } from '../clustering/question-signature.service';
+import { cosineSimilarity } from '../embedding/embedding.service';
 import { deriveSignalDomain } from '../friction/signal-domain.service';
 import { getMinSignalsForFrictionScore } from '../friction/friction-scoring.service';
 import { AiInterpretation } from '../phase6/interpretation.service';
@@ -295,14 +297,12 @@ function buildLearningInsights(
     const concept = normalizeConcept(cluster.primary_concept);
     const friction = frictionScores.find((score) => score.normalized_concept === concept) || null;
     const recurring = cluster.question_count >= 2;
-    // Friction is calculated at concept level, but a creator card represents
-    // one question cluster. Do not make a one- or two-signal cluster look
-    // AI-backed merely because a different cluster shares its concept.
+    // Friction and the creator-facing card both operate at concept level.
     const hasClusterFriction = friction?.learning_friction_score != null
       && cluster.question_count >= getMinSignalsForFrictionScore();
     const strength = hasClusterFriction ? 'strong' : recurring ? 'recurring' : 'emerging';
     const diagnosis = hasClusterFriction ? diagnoses.get(concept) : undefined;
-    const evidence = cluster.evidence.slice(0, 3).map((item) => ({
+    const evidence = cluster.evidence.map((item) => ({
       commentId: item.comment_id,
       commentText: item.comment_text,
       isReply: item.is_reply,
@@ -340,6 +340,109 @@ function buildLearningInsights(
       priority: basePriority('learning', strength, hasClusterFriction ? friction?.learning_friction_score ?? null : null),
     };
   });
+}
+
+/**
+ * An incremental analysis can leave adjacent clusters for exactly the same
+ * creator-facing concept. They are one learner need, not duplicate cards.
+ * Clustering is intentionally stricter than the audience view, so consolidate
+ * neighbouring clusters by their normalized concept here.
+ */
+export function getSemanticTopicSimilarityThreshold(): number {
+  const configured = Number(process.env.QUESTION_TOPIC_SIMILARITY_THRESHOLD || 0.66);
+  return Number.isFinite(configured) ? Math.min(0.95, Math.max(0.5, configured)) : 0.66;
+}
+
+function conceptWords(cluster: LearningCluster): Set<string> {
+  return new Set(normalizedText(`${cluster.primary_concept} ${cluster.cluster_label}`).split(' ').filter((word) => word.length > 2 && !['what', 'which', 'does', 'this', 'that', 'the', 'and', 'for', 'from', 'with', 'video', 'used', 'use', 'anyone', 'know', 'can', 'get', 'guide', 'tool', 'app', 'application', 'program', 'software'].includes(word)));
+}
+
+function clusterVector(cluster: LearningCluster, embeddings: ReadonlyMap<string, number[]>): number[] | null {
+  const vectors = cluster.evidence
+    .map((item) => embeddings.get(item.comment_id))
+    .filter((vector): vector is number[] => Boolean(vector?.length));
+  if (!vectors.length) return null;
+  const dimensions = vectors[0].length;
+  if (vectors.some((vector) => vector.length !== dimensions)) return null;
+  return Array.from({ length: dimensions }, (_, index) => vectors.reduce((sum, vector) => sum + vector[index], 0) / vectors.length);
+}
+
+/** Identifies the answer being requested, not a video-specific subject. */
+function questionPurpose(cluster: LearningCluster): 'tool_identification' | null {
+  const text = normalizedText(cluster.cluster_label);
+  const asksWhoOrWhat = /\b(what|which|name|anyone know|does anyone know|can someone tell)\b/.test(text);
+  const namesAResource = /\b(tool|app|application|program|software)\b/.test(text);
+  return asksWhoOrWhat && namesAResource ? 'tool_identification' : null;
+}
+
+function clustersCanShareTopic(left: LearningCluster, right: LearningCluster, embeddings: ReadonlyMap<string, number[]>): boolean {
+  const leftConcept = normalizeConcept(left.primary_concept);
+  const rightConcept = normalizeConcept(right.primary_concept);
+  const leftRole = deriveQuestionSignature(left.cluster_label);
+  const rightRole = deriveQuestionSignature(right.cluster_label);
+  if (!areQuestionSignaturesCompatible(leftRole, rightRole)) return false;
+  if (leftConcept === rightConcept) return true;
+
+  // Different model labels must still share a meaningful descriptive word
+  // before an embedding can join them. Resource nouns such as "tool" are too
+  // broad on their own and are handled by the narrower purpose check below.
+  const leftWords = conceptWords(left);
+  const hasSharedTopicWord = [...conceptWords(right)].some((word) => leftWords.has(word));
+  const sharesToolIdentificationPurpose = questionPurpose(left) === 'tool_identification'
+    && questionPurpose(right) === 'tool_identification';
+  if (!hasSharedTopicWord && !sharesToolIdentificationPurpose) return false;
+  const leftVector = clusterVector(left, embeddings);
+  const rightVector = clusterVector(right, embeddings);
+  if (!leftVector || !rightVector) return false;
+  const similarity = cosineSimilarity(leftVector, rightVector);
+  if (hasSharedTopicWord && similarity >= getSemanticTopicSimilarityThreshold()) return true;
+  // Short resource-identification questions are often paraphrased with very
+  // little shared vocabulary ("drawing" vs "diagramming"). Treat them as the
+  // same topic only when both ask for the name of a tool/app/etc. and their
+  // existing embeddings still show a meaningful relationship.
+  return sharesToolIdentificationPurpose && similarity >= 0.54;
+}
+
+function mergeTopicMembers(key: string, members: LearningCluster[]): LearningCluster {
+  if (members.length === 1) return members[0];
+    const first = members[0];
+    const evidenceByCommentId = new Map<string, LearningCluster['evidence'][number]>();
+    for (const member of members) {
+      for (const item of member.evidence) {
+        if (!evidenceByCommentId.has(item.comment_id)) evidenceByCommentId.set(item.comment_id, item);
+      }
+    }
+    const memberTotal = members.reduce((sum, member) => sum + member.question_count, 0);
+    const questionCount = evidenceByCommentId.size || memberTotal;
+    const weight = Math.max(1, memberTotal);
+  return {
+      ...first,
+      cluster_id: `merged:${key}`,
+      question_count: questionCount,
+      average_confusion_strength: members.reduce((sum, member) => sum + member.average_confusion_strength * member.question_count, 0) / weight,
+      average_confidence: members.reduce((sum, member) => sum + member.average_confidence * member.question_count, 0) / weight,
+      representative_comment_ids: [...new Set(members.flatMap((member) => member.representative_comment_ids))],
+      evidence: [...evidenceByCommentId.values()],
+  };
+}
+
+/**
+ * Builds the creator-facing semantic-topic layer on top of strict stored
+ * clusters. It never changes stored clusters or their membership. A candidate
+ * must be compatible with every cluster already in a topic, preventing one
+ * loosely related comment from chaining unrelated topics together.
+ */
+export function groupClustersIntoSemanticTopics(
+  clusters: LearningCluster[],
+  embeddings: ReadonlyMap<string, number[]> = new Map(),
+): LearningCluster[] {
+  const topics: LearningCluster[][] = [];
+  for (const cluster of [...clusters].sort((left, right) => left.cluster_id.localeCompare(right.cluster_id))) {
+    const compatibleTopic = topics.find((topic) => topic.every((member) => clustersCanShareTopic(member, cluster, embeddings)));
+    if (compatibleTopic) compatibleTopic.push(cluster);
+    else topics.push([cluster]);
+  }
+  return topics.map((members) => mergeTopicMembers(normalizeConcept(members[0].primary_concept), members));
 }
 
 /**
@@ -402,8 +505,10 @@ export function buildCreatorActions(
   clusters: LearningCluster[],
   frictionScores: FrictionRow[],
   diagnoses = new Map<string, AiInterpretation>(),
+  topicEmbeddings: ReadonlyMap<string, number[]> = new Map(),
 ): CreatorActionsResult {
   const uniqueSignals = uniqueSignalsByCommentId(signals);
+  const mergedLearningClusters = groupClustersIntoSemanticTopics(clusters, topicEmbeddings);
   const dispositionGroups = new Map<ProductDisposition, AudienceSignal[]>();
   for (const disposition of DISPOSITIONS) dispositionGroups.set(disposition, []);
   for (const signal of uniqueSignals) {
@@ -411,8 +516,8 @@ export function buildCreatorActions(
     dispositionGroups.get(disposition)!.push(signal);
   }
   const learningInsights = [
-    ...buildLearningInsights(clusters, frictionScores, diagnoses),
-    ...buildUnclusteredLearningInsights(uniqueSignals, clusters),
+    ...buildLearningInsights(mergedLearningClusters, frictionScores, diagnoses),
+    ...buildUnclusteredLearningInsights(uniqueSignals, mergedLearningClusters),
   ];
   const technicalBarriers = groupSignals(dispositionGroups.get('technical')!, 'technical');
   const curriculumNavigation = groupSignals(dispositionGroups.get('curriculum_navigation')!, 'curriculum_navigation');
@@ -430,7 +535,7 @@ export function buildCreatorActions(
     audienceOverview: {
       ...audienceOverview,
       analyzed: uniqueSignals.length,
-      recurringLearningQuestions: clusters.filter((cluster) => cluster.question_count >= 2).length,
+      recurringLearningQuestions: mergedLearningClusters.filter((cluster) => cluster.question_count >= 2).length,
     },
     creatorActions,
     learningInsights,

@@ -20,14 +20,18 @@ import { getConfiguredGeminiModel } from '../services/gemini/comment-analysis.se
 import { buildCreatorReplyAssessmentPrompt, buildCreatorReplyContexts, buildResponseWorkflowItems, buildDraftPrompt, creatorReplyAssessmentFingerprint, draftContextFingerprint, newDraftId, RESPONSE_CONTEXT_VERSION, ResponseDraftMode, ResponseWorkflowItem, validateCreatorReplyAssessment, validateDraft } from '../services/response-workflow/response-workflow.service';
 import { getCachedCreatorReplyAssessment, getCachedDraftContextKeys, getCachedResponseDraft, getCreatorReplyAssessmentUsageToday, getResponseDraftUsageToday, getWorkflowStates, markWorkflowCreatorReplyAnswered, setWorkflowResolution, storeCreatorReplyAssessment, storeResponseDraft, upsertWorkflowItems } from '../services/bigquery/bigquery.response-workflow';
 import { getResponseModel, withReasoningFallback } from '../services/gemini/model-policy';
+import { getGeminiClient } from '../services/gemini/gemini-client';
+import { getVideoEmbeddings } from '../services/bigquery/bigquery.embedding';
+import { getConfiguredEmbeddingModel } from '../services/embedding/embedding.service';
 
 const router = Router();
 
 async function getWorkflowItems(videoId: string): Promise<ResponseWorkflowItem[]> {
-  const [analyses, comments, frictionScores, clusterRows, creatorChannelId] = await Promise.all([
+  const [analyses, comments, frictionScores, clusterRows, creatorChannelId, embeddings] = await Promise.all([
     getAnalysisForVideo(videoId, PROMPT_VERSION, getConfiguredGeminiModel()),
     getCommentsForVideo(videoId), getFrictionAnalysisForVideo(videoId),
     getVideoClusters(videoId, CLUSTERING_VERSION), getVideoChannelId(videoId),
+    getVideoEmbeddings(videoId, getConfiguredEmbeddingModel(), PROMPT_VERSION),
   ]);
   const commentsById = new Map(comments.map((comment) => [comment.comment_id, comment]));
   const clusters = await Promise.all(clusterRows.map(async (cluster) => ({
@@ -51,17 +55,29 @@ async function getWorkflowItems(videoId: string): Promise<ResponseWorkflowItem[]
     const source = commentsById.get(analysis.comment_id);
     return { ...analysis, comment_text: source?.comment_text || '', is_reply: source?.is_reply || false,
       parent_comment_text: source?.parent_comment_id ? commentsById.get(source.parent_comment_id)?.comment_text || null : null };
-  }), clusters, frictionScores || [], diagnoses);
+  }), clusters, frictionScores || [], diagnoses, new Map(embeddings.map((embedding) => [embedding.comment_id, embedding.embedding])));
   return buildResponseWorkflowItems(videoId, actions.creatorActions, comments, creatorChannelId);
 }
 
 async function generateResponseDraft(item: ResponseWorkflowItem, mode: ResponseDraftMode): Promise<{ text: string; model: string }> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error('GEMINI_API_KEY is not configured on the server.');
-  const { GoogleGenAI } = await import('@google/genai');
-  const ai = new GoogleGenAI({ apiKey });
-  const generated = await withReasoningFallback((model) => ai.models.generateContent({ model, contents: buildDraftPrompt(item, mode, item.phase6Interpretation), config: { temperature: 0.3 } }), getResponseModel());
-  return { text: validateDraft(generated.value.text || ''), model: generated.model };
+  const ai = await getGeminiClient();
+  const generated = await withReasoningFallback((model) => ai.models.generateContent({
+    model,
+    contents: buildDraftPrompt(item, mode, item.phase6Interpretation),
+    config: {
+      temperature: 0.3,
+      maxOutputTokens: 240,
+      ...(model.includes('3.6') ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
+    },
+  }), getResponseModel());
+  const text = generated.value.text || '';
+  try {
+    return { text: validateDraft(text), model: generated.model };
+  } catch (error) {
+    const candidate = generated.value.candidates?.[0];
+    console.warn(`[Response Workflow] Draft response failed validation model='${generated.model}' text_length=${text.length} finish_reason='${candidate?.finishReason || 'unknown'}'.`);
+    throw error;
+  }
 }
 
 function parseJsonResponse(text: string, description: string): unknown {
@@ -70,20 +86,22 @@ function parseJsonResponse(text: string, description: string): unknown {
 }
 
 async function assessCreatorReply(item: ResponseWorkflowItem): Promise<{ outcome: 'answered' | 'partial' | 'not_answered'; confidence: number; reason: string; model: string }> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error('GEMINI_API_KEY is not configured on the server.');
   if (!item.creatorReplyText?.trim()) throw new Error('No creator reply is available to assess.');
-  const { GoogleGenAI } = await import('@google/genai');
-  const ai = new GoogleGenAI({ apiKey });
+  const ai = await getGeminiClient();
   const generated = await withReasoningFallback((model) => ai.models.generateContent({ model, contents: buildCreatorReplyAssessmentPrompt(item), config: { responseMimeType: 'application/json', temperature: 0 } }), getResponseModel());
   return { ...validateCreatorReplyAssessment(parseJsonResponse(generated.value.text || '', 'reply assessment')), model: generated.model };
 }
 
 function safeAiError(error: unknown, fallback: string): string {
   const message = error instanceof Error ? error.message : '';
+  if (/configured gemini model|model.*(?:not found|unavailable)|\b404\b/i.test(message)) {
+    return 'The configured AI model is not available in Vertex AI. Check the model name and location.';
+  }
+  if (/vertex ai is enabled|google_cloud_project|application default credentials|api.?key|authentication|permission/i.test(message)) {
+    return 'Vertex AI credentials or permissions need attention.';
+  }
   if (/503|unavailable|high demand|temporar/i.test(message)) return 'AI is temporarily busy. Please try again in a minute.';
   if (/429|resource.?exhausted|rate limit|quota/i.test(message)) return 'The AI request limit has been reached. Please try again later.';
-  if (/api.?key|authentication|permission/i.test(message)) return 'The AI service is not configured correctly.';
   return fallback;
 }
 
@@ -297,12 +315,13 @@ router.post('/video/:videoId/concepts/:concept/diagnosis', async (req: Request, 
 router.get('/video/:videoId/creator-actions', async (req: Request, res: Response) => {
   try {
     const videoId = String(req.params.videoId);
-    const [analyses, comments, frictionScores, clusterRows, creatorChannelId] = await Promise.all([
+    const [analyses, comments, frictionScores, clusterRows, creatorChannelId, embeddings] = await Promise.all([
       getAnalysisForVideo(videoId, PROMPT_VERSION, getConfiguredGeminiModel()),
       getCommentsForVideo(videoId),
       getFrictionAnalysisForVideo(videoId),
       getVideoClusters(videoId, CLUSTERING_VERSION),
       getVideoChannelId(videoId),
+      getVideoEmbeddings(videoId, getConfiguredEmbeddingModel(), PROMPT_VERSION),
     ]);
     const commentsById = new Map(comments.map((comment) => [comment.comment_id, comment]));
     const clusters = await Promise.all(clusterRows.map(async (cluster) => ({
@@ -344,6 +363,7 @@ router.get('/video/:videoId/creator-actions', async (req: Request, res: Response
       clusters,
       frictionScores || [],
       diagnoses,
+      new Map(embeddings.map((embedding) => [embedding.comment_id, embedding.embedding])),
     );
     return res.json({
       status: 'success',
@@ -437,7 +457,10 @@ router.post('/video/:videoId/response-workflow/:workflowId/draft', async (req: R
     const draft = { draft_id: newDraftId(), workflow_id: workflowId, video_id: videoId, context_version: contextVersion, draft_text: generated.text, model_name: generated.model, created_at: new Date().toISOString() };
     await storeResponseDraft(draft);
     return res.json({ status: 'success', cached: false, draft });
-  } catch (error) { return res.status(503).json({ status: 'error', error: safeAiError(error, 'A reply draft is temporarily unavailable.') }); }
+  } catch (error) {
+    console.error(`[Response Workflow] Draft generation failed for '${String(req.params.workflowId)}':`, error);
+    return res.status(503).json({ status: 'error', error: safeAiError(error, 'A reply draft is temporarily unavailable.') });
+  }
 });
 
 /** Explicitly checks a detected creator reply; results are cached against its exact context. */
@@ -459,7 +482,10 @@ router.post('/video/:videoId/response-workflow/:workflowId/creator-reply-check',
     await storeCreatorReplyAssessment(stored);
     if (assessment.outcome === 'answered' && assessment.confidence >= 0.8) await markWorkflowCreatorReplyAnswered(videoId, workflowId);
     return res.json({ status: 'success', cached: false, assessment: stored, resolved: assessment.outcome === 'answered' && assessment.confidence >= 0.8 });
-  } catch (error) { return res.status(503).json({ status: 'error', error: safeAiError(error, 'Creator-reply review is temporarily unavailable.') }); }
+  } catch (error) {
+    console.error(`[Response Workflow] Creator-reply review failed for '${String(req.params.workflowId)}':`, error);
+    return res.status(503).json({ status: 'error', error: safeAiError(error, 'Creator-reply review is temporarily unavailable.') });
+  }
 });
 
 /**

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { FrictionRow } from '../bigquery/bigquery.friction';
 import { ClusterEvidenceRow, ClusterRow } from '../bigquery/bigquery.friction';
 import { getReasoningModel, withReasoningFallback } from '../gemini/model-policy';
+import { getGeminiClient } from '../gemini/gemini-client';
 import { getMinSignalsForFrictionScore } from '../friction/friction-scoring.service';
 
 export const PHASE6_DIAGNOSIS_VERSION = 'v1';
@@ -110,10 +111,7 @@ export function getConfiguredDiagnosisModel(): string {
 }
 
 export async function generateAiInterpretation(packet: InterpretationPacket): Promise<{ interpretation: AiInterpretation; model: string }> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error('GEMINI_API_KEY is not configured on the server.');
-  const { GoogleGenAI } = await import('@google/genai');
-  const ai = new GoogleGenAI({ apiKey });
+  const ai = await getGeminiClient();
   const generated = await withReasoningFallback((model) => ai.models.generateContent({
     model, contents: buildInterpretationPrompt(packet), config: { responseMimeType: 'application/json', temperature: 0 },
   }), getReasoningModel());

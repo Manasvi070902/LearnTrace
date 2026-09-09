@@ -1,5 +1,6 @@
 import { COMMENT_ANALYSIS_PROMPT, PROMPT_VERSION } from '../../prompts/comment-analysis.prompt';
 import { DEFAULT_CLASSIFICATION_MODEL, getClassificationAvailabilityFallbackModel, getClassificationModel } from './model-policy';
+import { getGeminiClient } from './gemini-client';
 
 export const DEFAULT_GEMINI_MODEL = DEFAULT_CLASSIFICATION_MODEL;
 export const GEMINI_BATCH_SIZE = 50;
@@ -158,11 +159,6 @@ export function estimateGeminiRequests(commentCount: number, batchSize = GEMINI_
   return Math.ceil(Math.max(0, commentCount) / Math.max(1, Math.floor(batchSize)));
 }
 
-function getRequiredApiKey(): string {
-  if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY is not configured on the server.');
-  return process.env.GEMINI_API_KEY;
-}
-
 function isQuotaOrBillingError(error: unknown): boolean {
   const candidate = error as { status?: number; message?: string };
   const message = candidate?.message || String(error);
@@ -213,8 +209,7 @@ export async function analyzeBatch(
       if (requester) {
         responseText = await requester(contents);
       } else {
-        const { GoogleGenAI } = await import('@google/genai');
-        const ai = new GoogleGenAI({ apiKey: getRequiredApiKey() });
+        const ai = await getGeminiClient();
         const response = await ai.models.generateContent({
           model,
           contents,
