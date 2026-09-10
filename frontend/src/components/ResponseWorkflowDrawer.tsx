@@ -28,7 +28,8 @@ function DrawerHeading({ icon, children }: { icon: LearnTraceIconName; children:
 
 export function ResponseWorkflowDrawer({ item, videoId, workflowIds = [item.workflowId], onClose, onUpdated }: { item: ResponseWorkflowItem; videoId: string; workflowIds?: string[]; onClose: () => void; onUpdated: (action: WorkflowDrawerAction) => void | Promise<void> }) {
   const [draft, setDraft] = useState('');
-  const [working, setWorking] = useState(false);
+  const [drafting, setDrafting] = useState(false);
+  const [updatingStatus, setUpdatingStatus] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [showEvidence, setShowEvidence] = useState(false);
@@ -49,16 +50,16 @@ export function ResponseWorkflowDrawer({ item, videoId, workflowIds = [item.work
   }, [onClose]);
 
   const createDraft = async (regenerate = false) => {
-    setWorking(true); setError(null);
+    setDrafting(true); setError(null);
     try {
       const result = await generateResponseDraft(videoId, item.workflowId, item.primaryDraftMode, regenerate);
       setDraft(result.draft?.draft_text || '');
     } catch (err) { setError(err instanceof Error ? err.message : 'Could not create a reply draft.'); }
-    finally { setWorking(false); }
+    finally { setDrafting(false); }
   };
   const update = async (action: WorkflowDrawerAction) => {
     if (action === 'resolved' && !window.confirm('Mark this task as replied? Use this only after posting the response.')) return;
-    setWorking(true); setError(null);
+    setUpdatingStatus(true); setError(null);
     try {
       await Promise.all(workflowIds.map((workflowId) => action === 'snoozed'
         ? snoozeResponseWorkflow(videoId, workflowId)
@@ -67,7 +68,7 @@ export function ResponseWorkflowDrawer({ item, videoId, workflowIds = [item.work
           : setResponseWorkflowResolution(videoId, workflowId, true)));
       await onUpdated(action);
     } catch (err) { setError(err instanceof Error ? err.message : 'Could not update this task.'); }
-    finally { setWorking(false); }
+    finally { setUpdatingStatus(false); }
   };
   const copyDraft = async () => { await navigator.clipboard?.writeText(draft); setCopied(true); window.setTimeout(() => setCopied(false), 1600); };
 
@@ -96,10 +97,10 @@ export function ResponseWorkflowDrawer({ item, videoId, workflowIds = [item.work
         <DrawerHeading icon="reply">Response</DrawerHeading>
         {isSnoozed ? <div className="response-review"><span>SNOOZED</span><p>This follow-up is set aside for later.</p></div> : <>
           <div className="response-review"><span>NEEDS RESPONSE</span><p>Suggested response: <b>{item.suggestedResponseType}</b></p></div>
-          <button type="button" className="drawer-generate-button" onClick={() => void createDraft(false)} disabled={working}>{working ? 'Writing a draft…' : item.cachedDraftModes?.includes(item.primaryDraftMode) ? `View saved ${draftLabel(item.primaryDraftMode).toLowerCase()}` : `${draftLabel(item.primaryDraftMode)} ✦`}</button>
-          {draft && <div className="reply-draft-card"><label className="ai-draft-label" htmlFor="channel-reply-draft">AI-generated draft <small>Review and edit before posting.</small></label><textarea id="channel-reply-draft" className="reply-draft" value={draft} onChange={(event) => setDraft(event.target.value)} maxLength={900} /><div className="reply-draft-actions"><button type="button" onClick={() => void createDraft(true)} disabled={working}>Regenerate</button><button type="button" onClick={() => void copyDraft()}>{copied ? 'Copied' : 'Copy reply'}</button></div></div>}
+          <button type="button" className="drawer-generate-button" onClick={() => void createDraft(false)} disabled={drafting}>{drafting ? 'Writing a draft…' : item.cachedDraftModes?.includes(item.primaryDraftMode) ? `View saved ${draftLabel(item.primaryDraftMode).toLowerCase()}` : `${draftLabel(item.primaryDraftMode)} ✦`}</button>
+          {draft && <div className="reply-draft-card"><label className="ai-draft-label" htmlFor="channel-reply-draft">AI-generated draft <small>Review and edit before posting.</small></label><textarea id="channel-reply-draft" className="reply-draft" value={draft} onChange={(event) => setDraft(event.target.value)} maxLength={900} /><div className="reply-draft-actions"><button type="button" onClick={() => void createDraft(true)} disabled={drafting}>Regenerate</button><button type="button" onClick={() => void copyDraft()}>{copied ? 'Copied' : 'Copy reply'}</button></div></div>}
         </>}
-        {!isSnoozed && <div className="workflow-status-actions"><button type="button" className="text-button drawer-workflow-action drawer-workflow-snooze" disabled={working} onClick={() => void update('snoozed')}>{working ? 'Saving…' : 'Snooze'}</button><button type="button" className="text-button response-resolve drawer-workflow-action drawer-workflow-resolve" disabled={working} onClick={() => void update('resolved')}>{working ? 'Saving…' : 'Mark replied'}</button></div>}
+        {!isSnoozed && <div className="workflow-status-actions"><button type="button" className="text-button drawer-workflow-action drawer-workflow-snooze" disabled={updatingStatus} onClick={() => void update('snoozed')}>{updatingStatus ? 'Saving…' : 'Snooze'}</button><button type="button" className="text-button response-resolve drawer-workflow-action drawer-workflow-resolve" disabled={updatingStatus} onClick={() => void update('resolved')}>{updatingStatus ? 'Saving…' : 'Mark replied'}</button></div>}
         {error && <p className="drawer-diagnosis-error">{error}</p>}
       </section>
 
