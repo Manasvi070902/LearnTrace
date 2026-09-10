@@ -2,6 +2,11 @@
 
 LearnTrace turns YouTube comments into clear, evidence-backed audience insights for educational creators. Paste a public YouTube video or channel link to discover learner questions, content requests, feedback, teaching strengths, and follow-ups that need a response.
 
+- Live App : https://learntrace-250433370753.asia-south1.run.app/
+- Medium blog : https://medium.com/@alim.manasvi/can-ai-tell-a-creator-what-their-audience-didnt-understand-4ed63e05856d
+- Technical Documentation :https://docs.google.com/document/d/134A1im6HL1tuXGqjOKJnMOKiFdbl8oZ1_bqxHv1bic8/edit?usp=sharing
+- Demo : https://www.youtube.com/watch?v=kNPfppHWgLY
+
 ## Features
 
 - 🔗 **Video and channel analysis** — Paste a public YouTube video or channel link and explore its audience in one place.
