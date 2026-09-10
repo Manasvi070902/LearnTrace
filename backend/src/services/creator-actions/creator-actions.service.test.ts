@@ -53,9 +53,24 @@ describe('Creator Actions', () => {
     expect(deriveProductDisposition(signal({ intent: 'praise', comment_text: 'Amazing video, but it would benefit from a clearer title.' }))).toBe('actionable_feedback');
   });
 
+  it('treats a misclassified translation request as video feedback', () => {
+    expect(deriveProductDisposition(signal({ intent: 'content_request', comment_text: 'Translate in Hindi full episode' }))).toBe('actionable_feedback');
+  });
+
   it('keeps a mislabelled positive reaction out of Video Feedback', () => {
     expect(deriveProductDisposition(signal({ intent: 'feedback', comment_text: 'The next one is the last one? Nooo! I was enjoying this series so much!' }))).toBe('positive_signal');
     expect(deriveProductDisposition(signal({ intent: 'feedback', comment_text: "My professor doesn't actually lecture; we are told to watch videos." }))).toBe('other_useful');
+  });
+
+  it('keeps an emphatic testimonial in What Worked even when a stored label names the lesson concept', () => {
+    const testimonial = signal({
+      intent: 'feedback',
+      is_learning_signal: true,
+      concept: 'Hashing',
+      canonical_question: 'Hashing',
+      comment_text: "Wow, I used to be intimidated by DSA, especially topics like hashing, but your mind-blowing explanation changed everything for me. Thank you, sir — your teaching style is incredible. Love you for this.",
+    });
+    expect(deriveProductDisposition(testimonial)).toBe('positive_signal');
   });
 
   it('does not duplicate a stored comment in either creator-facing tab', () => {

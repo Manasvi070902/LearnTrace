@@ -465,7 +465,15 @@ function InsightDrawer({ action, response, creatorReply, videoId, onClose, onWor
         setDiagnosisMessage(result.message || result.supportingText || null);
         setDiagnosis(result.interpretation || null);
       })
-      .catch(() => { if (active) { setDiagnosisChecked(true); setDiagnosisMessage('AI interpretation eligibility could not be checked right now.'); } });
+      .catch(() => {
+        if (active) {
+          setDiagnosisChecked(true);
+          // A failed read-only pre-check should not hide the AI feature for a
+          // topic that already meets the visible 3-learner evidence threshold.
+          setDiagnosisEligible(action.supportingSignalCount >= 3);
+          setDiagnosisMessage('We could not pre-check eligibility, but this topic has enough learner evidence to try an AI interpretation.');
+        }
+      });
     return () => { active = false; };
   }, [action.id, action.concept, learning, videoId]);
   const countText = learning
@@ -540,7 +548,7 @@ function InsightDrawer({ action, response, creatorReply, videoId, onClose, onWor
     {!learning && (displayedAudienceRequest || course) && <section className="drawer-section"><DrawerHeading icon={course ? 'path' : 'comment'}>{course ? 'What the learner wants to know' : action.category === 'content_opportunity' ? 'What learners requested' : 'What learners said'}</DrawerHeading>{displayedAudienceRequest ? <p className="drawer-question">{displayedAudienceRequest}</p> : <p className="drawer-question course-question-fallback">A learner asked about course guidance.</p>}{supportingEvidence.length > 0 && <><button type="button" className="drawer-comments-toggle" onClick={() => setShowComments((visible) => !visible)} aria-expanded={showComments}>{course ? (showComments ? 'Hide original comment' : `See original comment${supportingEvidence.length === 1 ? '' : 's'}`) : (showComments ? 'Hide supporting comments' : `See ${supportingEvidence.length} supporting comment${supportingEvidence.length === 1 ? '' : 's'}`)} →</button>{showComments && <ul className="evidence-list drawer-evidence">{supportingEvidence.map((item) => <li key={item.commentId}>{item.isReply && item.parentCommentText && <><span className="reply-context"><LearnTraceIcon name="reply" size={14} /> Reply to: {item.parentCommentText}</span></>}{item.commentText}</li>)}</ul>}</>}</section>}
     {hasInterpretation && <section className="drawer-section"><DrawerHeading icon="sparkles">What LearnTrace noticed</DrawerHeading><p>{interpretationSummary}</p></section>}
     {hasInterpretation && <section className="drawer-section drawer-action"><DrawerHeading icon="content">What you could try</DrawerHeading><p>{interpretationAction}</p></section>}
-    {learning && diagnosisChecked && diagnosisEligible && !hasInterpretation && <section className="drawer-section drawer-diagnosis"><DrawerHeading icon="sparkles">AI interpretation available</DrawerHeading><p>There is enough recurring evidence for LearnTrace to interpret this learner difficulty.</p><button type="button" className="drawer-generate-button" disabled={generatingDiagnosis} onClick={() => void generateInterpretation()}>{generatingDiagnosis ? 'Generating interpretation…' : 'Generate AI interpretation'}</button>{diagnosisError && <p className="drawer-diagnosis-error">{diagnosisError}</p>}</section>}
+    {learning && diagnosisChecked && diagnosisEligible && !hasInterpretation && <section className="drawer-section drawer-diagnosis"><DrawerHeading icon="sparkles">AI interpretation available</DrawerHeading><p>{diagnosisMessage || 'There is enough recurring evidence for LearnTrace to interpret this learner difficulty.'}</p><button type="button" className="drawer-generate-button" disabled={generatingDiagnosis} onClick={() => void generateInterpretation()}>{generatingDiagnosis ? 'Generating interpretation…' : 'Generate AI interpretation'}</button>{diagnosisError && <p className="drawer-diagnosis-error">{diagnosisError}</p>}</section>}
     {learning && diagnosisChecked && !diagnosisEligible && !hasInterpretation && <section className="drawer-section drawer-watch"><DrawerHeading icon="eye">Worth watching</DrawerHeading><p>{diagnosisMessage || 'More recurring evidence is needed before LearnTrace can generate an AI interpretation.'}</p></section>}
     {learning && repeated && !hasInterpretation && !diagnosisChecked && <section className="drawer-section drawer-watch"><DrawerHeading icon="eye">Worth watching</DrawerHeading><p>{recommendation}</p></section>}
     {positive && <section className="drawer-section drawer-positive-meaning"><DrawerHeading icon="positive">Why this matters</DrawerHeading><p>{action.isGeneralPositive ? 'Learners praised the teaching overall but did not name a particular teaching approach.' : `Learners specifically responded positively to ${displayActionTitle(action).toLocaleLowerCase()}.`}</p></section>}

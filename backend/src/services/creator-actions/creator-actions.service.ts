@@ -98,7 +98,14 @@ function hasActionableFeedbackLanguage(text: string): boolean {
   const directProblem = /\b(too (fast|slow|long|short)|hard to (follow|understand|hear|read)|difficult to (follow|understand)|not clear|unclear|confusing|missing|lacks?|needs? improvement|can t hear|cannot hear)\b/.test(text);
   const audioProblem = /\b(audio|sound|microphone|volume)\b.{0,40}\b(too|low|poor|bad|unclear|quiet)\b/.test(text);
   const visualProblem = /\b(visual|slide|screen|font|text)\b.{0,40}\b(too|small|hard to read|unclear|poor|bad)\b/.test(text);
-  return directRequest || directProblem || audioProblem || visualProblem;
+  return directRequest || directProblem || audioProblem || visualProblem || isVideoAccessibilityFeedback(text);
+}
+
+/** A language or caption request improves the current video rather than asking for a new topic. */
+function isVideoAccessibilityFeedback(text: string): boolean {
+  const accessibility = /\b(translate|translation|subtitle|subtitles|caption|captions|closed caption|dub|dubbed|dubbing|hindi|english|spanish|tamil|telugu)\b/.test(text);
+  const currentVideo = /\b(this|video|episode|full|subtitle|caption|dub|translation|translate)\b/.test(text);
+  return accessibility && currentVideo;
 }
 
 function isActionableFeedback(signal: AudienceSignal): boolean {
@@ -112,6 +119,19 @@ function isPositiveReaction(signal: AudienceSignal): boolean {
     && !hasActionableFeedbackLanguage(text);
 }
 
+/**
+ * Guard against an over-eager stored AI label turning a testimonial into
+ * feedback merely because it mentions the lesson's subject (for example,
+ * "hashing").  A real question or improvement request always wins.
+ */
+function isUnequivocalPraise(signal: AudienceSignal): boolean {
+  if (signal.is_reply) return false;
+  const text = normalizedText(signal.comment_text);
+  const asksForSomething = /\?|\b(can|could|would|should) you\b|\bhow (do|can|should)\b|\bwhat (is|are|does|do)\b|\bplease\b/.test(signal.comment_text.toLocaleLowerCase());
+  const strongPraise = /\b(amazing|awesome|wonderful|incredible|mind blowing|mindblowing|love|thank you|thanks|appreciate|changed everything|better late than never|god like)\b/.test(text);
+  return strongPraise && !asksForSomething && !hasActionableFeedbackLanguage(text);
+}
+
 /** A compliment can contain a clear improvement request; it must not become a teaching strength. */
 function praiseContainsConstructiveFeedback(signal: AudienceSignal): boolean {
   return hasActionableFeedbackLanguage(normalizedText(signal.comment_text));
@@ -119,6 +139,13 @@ function praiseContainsConstructiveFeedback(signal: AudienceSignal): boolean {
 
 /** Assign exactly one creator-facing disposition to every analyzed record. */
 export function deriveProductDisposition(signal: AudienceSignal): ProductDisposition {
+  // This comes first intentionally.  The comment text is stronger evidence
+  // than a cached intent/concept when a comment is unambiguously praise.
+  if (isUnequivocalPraise(signal)) return 'positive_signal';
+  // Preserve correct UX for cached model classifications too: language and
+  // caption requests improve this video, even if an older model called them
+  // content requests.
+  if (signal.intent === 'content_request' && isVideoAccessibilityFeedback(normalizedText(signal.comment_text))) return 'actionable_feedback';
   if (signal.intent === 'content_request') return 'content_opportunity';
   const domain = deriveSignalDomain(signal);
   if (domain === 'learning_conceptual') return 'learning';

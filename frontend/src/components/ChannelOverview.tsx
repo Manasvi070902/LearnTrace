@@ -18,7 +18,10 @@ export function ChannelOverview({ channelId, onBack, onOpenAnalysis, onAnalyze }
     }, 350);
     return () => window.clearTimeout(timeout);
   }, [query]);
-  const analyzedVideos = catalog?.storedVideos || [];
+  // `storedVideos` means a video has been seen by LearnTrace before; it is
+  // not itself proof that the video has usable current analysis.  Keep stale
+  // cached video metadata out of the Analyzed filter and View analysis state.
+  const analyzedVideos = (catalog?.storedVideos || []).filter((video) => video.insight.analyzed);
   const currentVideoIds = new Set(videos.map((video) => video.videoId));
   // Include stored analyses with the initial page only. Re-injecting them on
   // every later YouTube page makes the same video look duplicated.

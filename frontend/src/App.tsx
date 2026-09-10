@@ -8,15 +8,29 @@ import { BrandMark } from './components/BrandMark';
 
 const DEMO_CHANNEL_URL = 'https://www.youtube.com/@googlecloudtech';
 const DEMO_CHANNEL_LOGO = 'https://www.gstatic.com/images/branding/product/2x/google_cloud_48dp.png';
+const DEMO_VIDEOS = [
+  {
+    url: 'https://www.youtube.com/watch?v=p9pgI3Mg-So',
+    videoId: 'p9pgI3Mg-So',
+    title: 'What is Firebase and how to use it',
+    description: 'Pre-tested video example with stored learner analysis.',
+  },
+  {
+    url: 'https://www.youtube.com/watch?v=KEs5UyBJ39g',
+    videoId: 'KEs5UyBJ39g',
+    title: 'Hashing | Maps | Time Complexity | Collisions | Division Rule of Hashing | Strivers A2Z DSA Course',
+    description: 'Pre-tested video example with stored learner analysis.',
+  },
+] as const;
 // Replace this with your GitHub profile or repository URL before publishing.
-const GITHUB_URL = 'https://github.com/your-github-username';
+const GITHUB_URL = 'https://github.com/Manasvi070902/LearnTrace';
 const LINKEDIN_URL = 'https://www.linkedin.com/in/manasvi-alimchandani-934b49197/';
 
 export default function App() {
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<RequestErrorDetails | null>(null);
-  const [demoLoading, setDemoLoading] = useState(false);
+  const [demoLoading, setDemoLoading] = useState<string | null>(null);
   const [analysisResult, setAnalysisResult] = useState<AnalyzeVideoResponse | null>(null);
   const [channelId, setChannelId] = useState<string | null>(() => /^\/channel\/(UC[A-Za-z0-9_-]{22})$/.exec(window.location.pathname)?.[1] || null);
   const [fromChannel, setFromChannel] = useState(false);
@@ -63,7 +77,7 @@ export default function App() {
   }, []);
 
   const handleDemo = async () => {
-    setDemoLoading(true);
+    setDemoLoading('channel');
     setError(null);
     try {
       const channel = await resolveChannel(DEMO_CHANNEL_URL);
@@ -72,7 +86,24 @@ export default function App() {
     } catch {
       setError({ title: 'Demo channel is temporarily unavailable.', message: 'You can still analyze a public educational YouTube link above.' });
     } finally {
-      setDemoLoading(false);
+      setDemoLoading(null);
+    }
+  };
+
+  const handleVideoDemo = async (videoUrl: string) => {
+    setDemoLoading(videoUrl);
+    setError(null);
+    try {
+      const response = await analyzeVideo(videoUrl);
+      if (response.status === 'error') {
+        setError(friendlyRequestError(undefined, response.error));
+        return;
+      }
+      setAnalysisResult(response);
+    } catch {
+      setError({ title: 'Demo video is temporarily unavailable.', message: 'You can still analyze another public YouTube link above.' });
+    } finally {
+      setDemoLoading(null);
     }
   };
 
@@ -175,12 +206,17 @@ if (trace.gapDetected) { renderHeatmap(); updateMetrics(); }`}
             <section className="demo-section" aria-labelledby="demo-heading">
               <h2 id="demo-heading">Try a pre-tested example</h2>
               <p>Explore a real channel with analyzed videos, recurring themes, and action items.</p>
-              <button type="button" className="demo-card" onClick={() => void handleDemo()} disabled={demoLoading}>
+              <button type="button" className="demo-card" onClick={() => void handleDemo()} disabled={Boolean(demoLoading)}>
                 <span className="demo-channel-logo"><img src={DEMO_CHANNEL_LOGO} alt="Google Cloud Tech channel logo" /></span>
                 <span className="demo-card-copy"><strong>Google Cloud Tech</strong><em>YouTube channel example</em><small>Explore channel-wide learner themes, pending responses, and video-level evidence.</small></span>
-                <span className="demo-card-cta">{demoLoading ? 'Loading…' : 'Explore channel →'}</span>
+                <span className="demo-card-cta">{demoLoading === 'channel' ? 'Loading…' : 'Explore channel →'}</span>
               </button>
-              <small className="demo-caption">Uses stored LearnTrace analyses already available for this channel.</small>
+              {DEMO_VIDEOS.map((video) => <button type="button" className="demo-card demo-video-card" key={video.videoId} onClick={() => void handleVideoDemo(video.url)} disabled={Boolean(demoLoading)}>
+                <img className="demo-video-thumbnail" src={`https://i.ytimg.com/vi/${video.videoId}/hqdefault.jpg`} alt="" />
+                <span className="demo-card-copy"><strong>{video.title}</strong><em>YouTube video example</em><small>{video.description}</small></span>
+                <span className="demo-card-cta">{demoLoading === video.url ? 'Loading…' : 'View analysis →'}</span>
+              </button>)}
+              <small className="demo-caption">These examples use stored LearnTrace analyses when available.</small>
             </section>
 
             <div className="features-badges">
