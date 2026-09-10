@@ -18,7 +18,7 @@ const DEMO_VIDEOS = [
   {
     url: 'https://www.youtube.com/watch?v=KEs5UyBJ39g',
     videoId: 'KEs5UyBJ39g',
-    title: 'Career guidance for developers',
+    title: 'Hashing | Maps | Time Complexity | Collisions | Division Rule of Hashing | Strivers A2Z DSA Course',
     description: 'Pre-tested video example with stored learner analysis.',
   },
 ] as const;
