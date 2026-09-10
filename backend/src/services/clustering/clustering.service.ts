@@ -10,11 +10,12 @@ import { cosineSimilarity } from '../embedding/embedding.service';
 import { areQuestionSignaturesCompatible, deriveQuestionSignature, QuestionSignature } from './question-signature.service';
 
 /**
- * v6 keeps question-task compatibility and complete-link cohesion while using
- * a modestly more tolerant threshold for ordinary paraphrases. Derived Phase
- * 5/6 results from earlier versions must be recomputed.
+ * v7 keeps question-task compatibility and complete-link cohesion while also
+ * checking the original learner wording. A broad or imperfect canonical
+ * question must not merge distinct needs such as collection counters, ASCII
+ * indexing, and hash collisions.
  */
-export const CLUSTERING_VERSION = 'v6';
+export const CLUSTERING_VERSION = 'v7';
 
 export function getClusterSimilarityThreshold(): number {
   return Number(process.env.QUESTION_CLUSTER_SIMILARITY_THRESHOLD || 0.70);
@@ -23,6 +24,8 @@ export function getClusterSimilarityThreshold(): number {
 export interface QuestionEmbedding {
   comment_id: string;
   canonical_question: string;
+  /** Original learner wording, used only as a conservative merge guard. */
+  source_text?: string;
   concept: string | null;
   /** Existing Phase 4 intent, retained for question-task diagnostics. */
   intent?: string;
@@ -174,10 +177,24 @@ const SUBJECT_STOP_WORDS = new Set([
  * questions contain specific subject words beyond their shared concept, at
  * least one of those words must overlap before embeddings may cluster them.
  */
+function normalizeSubjectWord(word: string): string {
+  // Small inflection normalisation keeps "collection" and "collections"
+  // together without introducing a second AI or NLP dependency.
+  return word.length > 4 && word.endsWith('s') ? word.slice(0, -1) : word;
+}
+
 function specificSubjectWords(question: QuestionEmbedding): Set<string> {
   const conceptWords = new Set((question.concept || '').toLocaleLowerCase().match(/[\p{L}\p{N}]+/gu) || []);
+  const sourceWords = question.source_text?.toLocaleLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
+  // Prefer the source wording whenever we have it. Canonical questions are
+  // useful summaries, but a classifier can give several different comments
+  // the same broad phrase (for example, "question about hashing").
+  const candidateWords = sourceWords.length
+    ? sourceWords
+    : question.canonical_question.toLocaleLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
   return new Set(
-    (question.canonical_question.toLocaleLowerCase().match(/[\p{L}\p{N}]+/gu) || [])
+    candidateWords
+      .map(normalizeSubjectWord)
       .filter((word) => word.length > 2 && !SUBJECT_STOP_WORDS.has(word) && !conceptWords.has(word))
   );
 }

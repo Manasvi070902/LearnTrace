@@ -166,6 +166,22 @@ describe('Creator Actions', () => {
     expect(groupClustersIntoSemanticTopics([pricing, gift, logs], embeddings)).toHaveLength(3);
   });
 
+  it('does not merge different learner needs behind the same broad hashing label', () => {
+    const counter = {
+      ...cluster('counter', 2), primary_concept: 'Hashing', cluster_label: 'Question about hashing',
+      evidence: [
+        { ...cluster('counter', 1).evidence[0], comment_id: 'counter-1', comment_text: 'Can Counter from collections be used for map hashing?' },
+        { ...cluster('counter', 1).evidence[0], comment_id: 'counter-2', comment_text: 'Can I use Counter from Collection for map hashing?' },
+      ],
+    };
+    const ascii = { ...cluster('ascii', 1), primary_concept: 'Hashing', cluster_label: 'Question about hashing', evidence: [{ ...cluster('ascii', 1).evidence[0], comment_text: 'Why did he increment after converting a character to an array index?' }] };
+    const collision = { ...cluster('collision', 1), primary_concept: 'Hashing', cluster_label: 'Question about hashing', evidence: [{ ...cluster('collision', 1).evidence[0], comment_text: 'If two keys have the same value, is that a collision?' }] };
+    const embeddings = new Map<string, number[]>([
+      ['counter-1', [1, 0]], ['counter-2', [1, 0]], ['ascii-0', [.95, .312249]], ['collision-0', [.96, .28]],
+    ]);
+    expect(groupClustersIntoSemanticTopics([counter, ascii, collision], embeddings)).toHaveLength(3);
+  });
+
   it('aggregates technical, curriculum, content, and feedback signals without treating them as friction', () => {
     const signals = [
       signal({ comment_id: 't1', intent: 'technical_error', concept: 'Environment setup', comment_text: 'The setup fails.' }),
@@ -240,6 +256,16 @@ describe('Creator Actions', () => {
     ], [], []);
     expect(result.contentOpportunities).toHaveLength(2);
     expect(result.contentOpportunities.every((action) => action.supportingSignalCount === 1)).toBe(true);
+  });
+
+  it('keeps a short unspecified request visible without presenting it as a content topic', () => {
+    const result = buildCreatorActions([
+      signal({ intent: 'content_request', concept: 'Content Opportunity', canonical_question: 'Learner request', comment_text: '追加して下さい🥺' }),
+    ], [], []);
+    expect(result.contentOpportunities[0]).toMatchObject({
+      concept: 'unspecified learner request',
+      summary: 'A learner asked for something to be added, but did not specify what.',
+    });
   });
 
   it('preserves the normalized course question separately from mixed raw-comment evidence', () => {

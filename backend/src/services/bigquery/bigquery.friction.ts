@@ -54,16 +54,15 @@ export interface ClusterEvidenceRow extends ClusterMemberRow {
  * Store cluster results in BigQuery.
  * Replaces existing clusters for the same video and clustering version.
  */
-export async function storeClusters(rows: ClusterRow[]): Promise<void> {
-  if (!rows.length) return;
-
+export async function storeClusters(rows: ClusterRow[], scope?: { videoId: string; clusteringVersion: string }): Promise<void> {
   const bq = getBigQueryClient();
   const projectId = process.env.GOOGLE_CLOUD_PROJECT_ID!;
   const datasetId = process.env.BIGQUERY_DATASET!;
   const table = `\`${projectId}.${datasetId}.${TABLE_NAMES.QUESTION_CLUSTERS}\``;
   const membersTable = `\`${projectId}.${datasetId}.${TABLE_NAMES.QUESTION_CLUSTER_MEMBERS}\``;
-  const videoId = rows[0].video_id;
-  const clusteringVersion = rows[0].clustering_version;
+  const videoId = scope?.videoId || rows[0]?.video_id;
+  const clusteringVersion = scope?.clusteringVersion || rows[0]?.clustering_version;
+  if (!videoId || !clusteringVersion) return;
 
   // Each run replaces this video's derived view; source comments and analyses
   // are never changed.
@@ -77,6 +76,10 @@ export async function storeClusters(rows: ClusterRow[]): Promise<void> {
     params: { video_id: videoId, clustering_version: clusteringVersion },
     location: process.env.BIGQUERY_LOCATION,
   });
+
+  // An empty current result is still a valid replacement. Without this, a
+  // refresh that produces no v7 clusters leaves the previous v7 rows visible.
+  if (!rows.length) return;
 
   await bq.query({
     query: `
@@ -160,13 +163,23 @@ export async function storeClusterMembers(rows: ClusterMemberRow[]): Promise<voi
 /**
  * Store friction scores in BigQuery.
  */
-export async function storeFrictionScores(rows: FrictionRow[]): Promise<void> {
-  if (!rows.length) return;
-
+export async function storeFrictionScores(rows: FrictionRow[], scope?: { videoId: string; scoringVersion: string }): Promise<void> {
   const bq = getBigQueryClient();
   const projectId = process.env.GOOGLE_CLOUD_PROJECT_ID!;
   const datasetId = process.env.BIGQUERY_DATASET!;
   const table = `\`${projectId}.${datasetId}.${TABLE_NAMES.LEARNING_FRICTION}\``;
+  const videoId = scope?.videoId || rows[0]?.video_id;
+  const scoringVersion = scope?.scoringVersion || rows[0]?.scoring_version;
+  if (!videoId || !scoringVersion) return;
+
+  // Friction is a derived snapshot. Remove concepts that disappeared after a
+  // v7 re-cluster instead of leaving them available to video/channel views.
+  await bq.query({
+    query: `DELETE FROM ${table} WHERE video_id = @video_id AND scoring_version = @scoring_version`,
+    params: { video_id: videoId, scoring_version: scoringVersion },
+    location: process.env.BIGQUERY_LOCATION,
+  });
+  if (!rows.length) return;
 
   await bq.query({
     query: `

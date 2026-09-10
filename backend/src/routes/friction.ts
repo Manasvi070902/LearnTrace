@@ -19,7 +19,7 @@ import { buildCreatorActions } from '../services/creator-actions/creator-actions
 import { PROMPT_VERSION } from '../prompts/comment-analysis.prompt';
 import { getConfiguredGeminiModel } from '../services/gemini/comment-analysis.service';
 import { buildCreatorReplyAssessmentPrompt, buildCreatorReplyContexts, buildResponseWorkflowItems, buildDraftPrompt, creatorReplyAssessmentFingerprint, draftContextFingerprint, newDraftId, RESPONSE_CONTEXT_VERSION, ResponseDraftMode, ResponseWorkflowItem, validateCreatorReplyAssessment, validateDraft } from '../services/response-workflow/response-workflow.service';
-import { getCachedCreatorReplyAssessment, getCachedDraftContextKeys, getCachedResponseDraft, getCreatorReplyAssessmentUsageToday, getResponseDraftUsageToday, getWorkflowStates, markWorkflowCreatorReplyAnswered, setWorkflowResolution, snoozeWorkflow, storeCreatorReplyAssessment, storeResponseDraft, upsertWorkflowItems } from '../services/bigquery/bigquery.response-workflow';
+import { getCachedCreatorReplyAssessment, getCachedDraftContextKeys, getCachedResponseDraft, getCreatorReplyAssessmentUsageToday, getResponseDraftUsageToday, getWorkflowStates, markWorkflowCreatorReplyAnswered, setWorkflowResolution, snoozeWorkflow, StoredCreatorReplyAssessment, storeCreatorReplyAssessment, storeResponseDraft, upsertWorkflowItems } from '../services/bigquery/bigquery.response-workflow';
 import { getResponseModel, withReasoningFallback } from '../services/gemini/model-policy';
 import { getGeminiClient } from '../services/gemini/gemini-client';
 import { getVideoEmbeddings } from '../services/bigquery/bigquery.embedding';
@@ -93,6 +93,32 @@ async function assessCreatorReply(item: ResponseWorkflowItem): Promise<{ outcome
   return { ...validateCreatorReplyAssessment(parseJsonResponse(generated.value.text || '', 'reply assessment')), model: generated.model };
 }
 
+/**
+ * Creator replies are evaluated once per exact learner-need/reply context.
+ * Both the initial workflow load and the explicit endpoint use this function,
+ * so a response that already answers the learner never receives a needless
+ * second draft prompt.
+ */
+async function getOrCreateCreatorReplyAssessment(item: ResponseWorkflowItem): Promise<StoredCreatorReplyAssessment> {
+  const contextVersion = creatorReplyAssessmentFingerprint(item);
+  const cached = await getCachedCreatorReplyAssessment(item.videoId, item.workflowId, contextVersion);
+  if (cached) return cached;
+  const [draftUsage, checkUsage] = await Promise.all([getResponseDraftUsageToday(), getCreatorReplyAssessmentUsageToday()]);
+  const limit = Number(process.env.GEMINI_REASONING_MAX_REQUESTS_PER_DAY || process.env.GEMINI_MAX_REQUESTS_PER_DAY || 1200);
+  if (draftUsage + checkUsage >= limit) throw new Error("Today's AI analysis allowance has been reached.");
+  const assessment = await assessCreatorReply(item);
+  const stored: StoredCreatorReplyAssessment = {
+    workflow_id: item.workflowId, video_id: item.videoId, context_version: contextVersion,
+    outcome: assessment.outcome, confidence: assessment.confidence, reason: assessment.reason,
+    model_name: assessment.model, created_at: new Date().toISOString(),
+  };
+  await storeCreatorReplyAssessment(stored);
+  if (assessment.outcome === 'answered' && assessment.confidence >= 0.8) {
+    await markWorkflowCreatorReplyAnswered(item.videoId, item.workflowId);
+  }
+  return stored;
+}
+
 function safeAiError(error: unknown, fallback: string): string {
   const message = error instanceof Error ? error.message : '';
   if (/configured gemini model|model.*(?:not found|unavailable)|\b404\b/i.test(message)) {
@@ -133,6 +159,14 @@ router.post('/video/:videoId/friction', async (req: Request, res: Response) => {
     // Run friction analysis
     const report = await analyzeFrictionForVideo(videoId);
 
+    // Cluster refreshes can split, merge, or remove creator actions. Keep the
+    // persisted response workflow in the same transaction boundary from the
+    // API caller's perspective so channel queues never retain v6-era tasks
+    // after a v7 refresh. Manual state is preserved by upsertWorkflowItems;
+    // obsolete workflow identities are marked superseded.
+    const workflowItems = await getWorkflowItems(videoId);
+    await upsertWorkflowItems(workflowItems, videoId);
+
     return res.json({
       status: 'success',
       videoId,
@@ -149,6 +183,7 @@ router.post('/video/:videoId/friction', async (req: Request, res: Response) => {
         conceptsInsufficientEvidence: report.conceptsInsufficientEvidence,
         technicalBarriers: report.technicalBarriers,
         curriculumNavigationSignals: report.curriculumNavigationSignals,
+        responseWorkflowItems: workflowItems.length,
       },
       confusionMap: report.frictionScores,
     });
@@ -271,7 +306,12 @@ const insufficientInterpretation = () => ({
 
 function topicCommentIds(value: unknown): string[] {
   if (typeof value !== 'string') return [];
-  return [...new Set(value.split(',').map((id) => id.trim()).filter((id) => /^[A-Za-z0-9_-]{6,}$/.test(id)))].slice(0, 100);
+  // YouTube comment IDs are opaque provider identifiers. In particular, reply
+  // IDs are not guaranteed to use only the characters accepted by the old
+  // regex. The POST diagnosis path already treats them as opaque strings; do
+  // the same for the read-only eligibility check so valid evidence is not
+  // dropped before the drawer decides whether to show the AI action.
+  return [...new Set(value.split(',').map((id) => id.trim()).filter((id) => id.length > 0 && id.length <= 256))].slice(0, 100);
 }
 
 async function getTopicInterpretationContext(videoId: string, concept: string, commentIds: string[]) {
@@ -433,8 +473,8 @@ router.get('/video/:videoId/creator-actions', async (req: Request, res: Response
 });
 
 /**
- * A persisted creator workflow over existing actionable insights. Reading this
- * endpoint does not call Gemini or reclassify any comment.
+ * A persisted creator workflow over existing actionable insights. New creator
+ * replies are assessed once here, then cached against their exact context.
  */
 router.get('/video/:videoId/response-workflow', async (req: Request, res: Response) => {
   try {
@@ -447,16 +487,24 @@ router.get('/video/:videoId/response-workflow', async (req: Request, res: Respon
       const state = states.get(item.workflowId);
       return state ? { ...item, resolutionStatus: state.resolution_status, resolutionSource: state.resolution_source, resolvedAt: state.resolved_at, creatorReplyCommentId: state.creator_reply_comment_id || item.creatorReplyCommentId, communityReplyCommentId: state.community_reply_comment_id } : item;
     });
-    const [cachedDraftKeys, replyAssessments] = await Promise.all([
-      getCachedDraftContextKeys(videoId, statefulItems.map((item) => item.workflowId)),
-      Promise.all(statefulItems.map(async (item) => {
-        if (!item.creatorReplyText?.trim()) return [item.workflowId, null] as const;
-        const cached = await getCachedCreatorReplyAssessment(videoId, item.workflowId, creatorReplyAssessmentFingerprint(item));
-        return [item.workflowId, cached] as const;
-      })),
-    ]);
-    const assessmentByWorkflowId = new Map(replyAssessments);
-    const items = statefulItems.map((item) => {
+    const assessmentByWorkflowId = new Map<string, StoredCreatorReplyAssessment | null>();
+    // Run serially to stay within the provider's RPM limit. Assessments are
+    // cached, so a later load does not issue another AI request.
+    for (const item of statefulItems) {
+      if (!item.creatorReplyText?.trim()) { assessmentByWorkflowId.set(item.workflowId, null); continue; }
+      try { assessmentByWorkflowId.set(item.workflowId, await getOrCreateCreatorReplyAssessment(item)); }
+      catch (error) {
+        console.warn(`[Response Workflow] Automatic creator-reply review skipped for '${item.workflowId}':`, error);
+        assessmentByWorkflowId.set(item.workflowId, null);
+      }
+    }
+    const refreshedStates = new Map((await getWorkflowStates(videoId)).map((state) => [state.workflow_id, state]));
+    const refreshedItems = computed.map((item) => {
+      const state = refreshedStates.get(item.workflowId);
+      return state ? { ...item, resolutionStatus: state.resolution_status, resolutionSource: state.resolution_source, resolvedAt: state.resolved_at, creatorReplyCommentId: state.creator_reply_comment_id || item.creatorReplyCommentId, communityReplyCommentId: state.community_reply_comment_id } : item;
+    });
+    const cachedDraftKeys = await getCachedDraftContextKeys(videoId, refreshedItems.map((item) => item.workflowId));
+    const items = refreshedItems.map((item) => {
       const assessment = assessmentByWorkflowId.get(item.workflowId);
       const modes = [item.primaryDraftMode, item.secondaryDraftMode].filter((mode): mode is ResponseDraftMode => Boolean(mode));
       return {
@@ -541,16 +589,10 @@ router.post('/video/:videoId/response-workflow/:workflowId/creator-reply-check',
     if (!item) return res.status(404).json({ status: 'error', error: 'Response workflow item was not found.' });
     if (!item.creatorReplyText?.trim()) return res.status(400).json({ status: 'error', error: 'No creator reply is available to assess.' });
     const contextVersion = creatorReplyAssessmentFingerprint(item);
-    const cached = await getCachedCreatorReplyAssessment(videoId, workflowId, contextVersion);
-    if (cached) return res.json({ status: 'success', cached: true, assessment: cached });
-    const [draftUsage, checkUsage] = await Promise.all([getResponseDraftUsageToday(), getCreatorReplyAssessmentUsageToday()]);
-    const limit = Number(process.env.GEMINI_REASONING_MAX_REQUESTS_PER_DAY || process.env.GEMINI_MAX_REQUESTS_PER_DAY || 1200);
-    if (draftUsage + checkUsage >= limit) return res.status(429).json({ status: 'error', error: "Today's AI analysis allowance has been reached." });
-    const assessment = await assessCreatorReply(item);
-    const stored = { workflow_id: workflowId, video_id: videoId, context_version: contextVersion, outcome: assessment.outcome, confidence: assessment.confidence, reason: assessment.reason, model_name: assessment.model, created_at: new Date().toISOString() };
-    await storeCreatorReplyAssessment(stored);
-    if (assessment.outcome === 'answered' && assessment.confidence >= 0.8) await markWorkflowCreatorReplyAnswered(videoId, workflowId);
-    return res.json({ status: 'success', cached: false, assessment: stored, resolved: assessment.outcome === 'answered' && assessment.confidence >= 0.8 });
+    const wasCached = Boolean(await getCachedCreatorReplyAssessment(videoId, workflowId, contextVersion));
+    const stored = await getOrCreateCreatorReplyAssessment(item);
+    const resolved = stored.outcome === 'answered' && stored.confidence >= 0.8;
+    return res.json({ status: 'success', cached: wasCached, assessment: stored, resolved });
   } catch (error) {
     console.error(`[Response Workflow] Creator-reply review failed for '${String(req.params.workflowId)}':`, error);
     return res.status(503).json({ status: 'error', error: safeAiError(error, 'Creator-reply review is temporarily unavailable.') });

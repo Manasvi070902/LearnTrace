@@ -114,6 +114,7 @@ export function CreatorActionsView({ videoId }: CreatorActionsViewProps) {
   const [openInsight, setOpenInsight] = useState<string | null>(null);
   const [responseItems, setResponseItems] = useState<ResponseWorkflowItem[]>([]);
   const [workflowNeedsCount, setWorkflowNeedsCount] = useState<number | null>(null);
+  const [workflowLoading, setWorkflowLoading] = useState(true);
   const [responseWorkflowError, setResponseWorkflowError] = useState<string | null>(null);
   const [responseFilter, setResponseFilter] = useState<'all' | 'needs'>('all');
   const categoryPanelRef = useRef<HTMLElement>(null);
@@ -127,19 +128,24 @@ export function CreatorActionsView({ videoId }: CreatorActionsViewProps) {
     setWorkflowNeedsCount((result.summary?.needsResponse ?? result.needsResponse?.length ?? 0) + (result.summary?.snoozed ?? result.snoozed?.length ?? 0));
     setResponseWorkflowError(null);
   };
-  const refreshResponseWorkflow = () => getResponseWorkflow(videoId)
-    .then(applyWorkflowResult)
-    .catch(() => setResponseWorkflowError('Response status is temporarily unavailable. Refresh the page after restarting the backend.'));
+  const refreshResponseWorkflow = () => {
+    setWorkflowLoading(true);
+    return getResponseWorkflow(videoId)
+      .then(applyWorkflowResult)
+      .catch(() => setResponseWorkflowError('Response status is temporarily unavailable. Refresh the page after restarting the backend.'))
+      .finally(() => setWorkflowLoading(false));
+  };
 
   useEffect(() => {
     let active = true;
-    setData(null); setError(null); setSelectedCategory(null); setOpenInsight(null); setResponseItems([]); setWorkflowNeedsCount(null); setResponseWorkflowError(null); setResponseFilter('all');
+    setData(null); setError(null); setSelectedCategory(null); setOpenInsight(null); setResponseItems([]); setWorkflowNeedsCount(null); setWorkflowLoading(true); setResponseWorkflowError(null); setResponseFilter('all');
     void getCreatorActions(videoId)
       .then((result) => { if (active) setData(result); })
       .catch((loadError) => { if (active) setError(loadError instanceof Error ? loadError.message : 'Could not load audience insights.'); });
     void getResponseWorkflow(videoId)
       .then((result) => { if (active) applyWorkflowResult(result); })
-      .catch(() => { if (active) setResponseWorkflowError('Response status is temporarily unavailable. Refresh the page after restarting the backend.'); });
+      .catch(() => { if (active) setResponseWorkflowError('Response status is temporarily unavailable. Refresh the page after restarting the backend.'); })
+      .finally(() => { if (active) setWorkflowLoading(false); });
     return () => { active = false; };
   }, [videoId]);
 
@@ -175,7 +181,7 @@ export function CreatorActionsView({ videoId }: CreatorActionsViewProps) {
     </section>}
 
     <section className="audience-explorer">
-      <div className="audience-explorer-heading"><h3 className="audience-explorer-title">Explore your audience</h3><div className="response-filter"><button type="button" className={responseFilter === 'all' ? 'active' : ''} onClick={() => setResponseFilter('all')}>All insights</button><button type="button" className={responseFilter === 'needs' ? 'active' : ''} onClick={() => { setResponseFilter('needs'); void refreshResponseWorkflow(); }}>Needs response <b>{responseWorkflowError ? '—' : workflowNeedsCount ?? needsResponse.length}</b></button></div></div>
+      <div className="audience-explorer-heading"><div><h3 className="audience-explorer-title">Explore your audience</h3>{workflowLoading && <p className="section-secondary-text response-workflow-progress">Checking creator replies…</p>}</div><div className="response-filter"><button type="button" className={responseFilter === 'all' ? 'active' : ''} onClick={() => setResponseFilter('all')}>All insights</button><button type="button" className={responseFilter === 'needs' ? 'active' : ''} onClick={() => { setResponseFilter('needs'); void refreshResponseWorkflow(); }}>Needs response <b>{workflowLoading ? '…' : responseWorkflowError ? '—' : workflowNeedsCount ?? needsResponse.length}</b></button></div></div>
     {responseWorkflowError && <p className="response-workflow-error">{responseWorkflowError}</p>}
       <div className="category-grid">{visibleCategories.map((category) => <button type="button" className={`category-card category-${category.key} ${selectedCategory === category.key ? 'selected' : ''}`} key={category.key} onClick={() => chooseCategory(category.key)} aria-pressed={selectedCategory === category.key}>
         <span className="category-heading"><span className="category-icon" aria-hidden="true"><LearnTraceIcon name={category.icon} /></span><span className="category-label">{category.label}</span></span>
@@ -191,9 +197,9 @@ export function CreatorActionsView({ videoId }: CreatorActionsViewProps) {
       {selected.key === 'learning' && <LearningGroups actions={selectedActions} onOpen={setOpenInsight} compact={Boolean(openInsight)} />}
       {selected.key !== 'learning' && (selected.key === 'actionable_feedback' || selected.key === 'positive_signal'
         ? <ThemeRows actions={selectedActions} category={selected.key} onOpen={setOpenInsight} />
-        : <CategoryActionCarousel actions={selectedActions} onOpen={setOpenInsight} creatorReplies={creatorRepliesByInsight} responseItems={responseByInsight} videoId={videoId} />)}
+        : <CategoryActionCarousel actions={selectedActions} onOpen={setOpenInsight} creatorReplies={creatorRepliesByInsight} responseItems={responseByInsight} videoId={videoId} onWorkflowUpdated={refreshResponseWorkflow} />)}
     </section>}
-    {selectedInsight && <InsightDrawer key={selectedInsight.id} action={selectedInsight} response={responseByInsight.get(selectedInsight.id)} creatorReply={creatorRepliesByInsight.get(selectedInsight.id)} videoId={videoId} onClose={() => setOpenInsight(null)} onWorkflowUpdated={() => { setOpenInsight(null); void refreshResponseWorkflow(); }} />}
+    {selectedInsight && <InsightDrawer key={selectedInsight.id} action={selectedInsight} response={responseByInsight.get(selectedInsight.id)} creatorReply={creatorRepliesByInsight.get(selectedInsight.id)} videoId={videoId} onClose={() => setOpenInsight(null)} onWorkflowUpdated={() => void refreshResponseWorkflow()} />}
   </section>;
 }
 
@@ -360,12 +366,16 @@ function ThemeRows({ actions, category, onOpen }: { actions: CreatorAction[]; ca
   </section>;
 }
 
-function CategoryActionCarousel({ actions, onOpen, creatorReplies, responseItems, videoId }: { actions: CreatorAction[]; onOpen: (id: string) => void; creatorReplies: Map<string, CreatorReplyContext>; responseItems: Map<string, ResponseWorkflowItem>; videoId: string }) {
+function CategoryActionCarousel({ actions, onOpen, creatorReplies, responseItems, videoId, onWorkflowUpdated }: { actions: CreatorAction[]; onOpen: (id: string) => void; creatorReplies: Map<string, CreatorReplyContext>; responseItems: Map<string, ResponseWorkflowItem>; videoId: string; onWorkflowUpdated: () => void | Promise<void> }) {
   const [index, setIndex] = useState(0);
   const [inlineDraft, setInlineDraft] = useState('');
   const [draftingInline, setDraftingInline] = useState(false);
   const [inlineDraftError, setInlineDraftError] = useState<string | null>(null);
   const [inlineCopied, setInlineCopied] = useState(false);
+  const [checkingInlineReply, setCheckingInlineReply] = useState(false);
+  const [undoingInlineReply, setUndoingInlineReply] = useState(false);
+  const [resolvingInlineReply, setResolvingInlineReply] = useState(false);
+  const checkedReplyWorkflows = useRef<Set<string>>(new Set());
   const actionIdentity = actions.map((item) => item.id).join('|');
   const activeIndex = Math.min(index, Math.max(0, actions.length - 1));
   const action = actions[activeIndex];
@@ -380,6 +390,16 @@ function CategoryActionCarousel({ actions, onOpen, creatorReplies, responseItems
   const isSingleContentRequest = action.category === 'content_opportunity' && action.supportingSignalCount === 1;
   const creatorReply = creatorReplies.get(action.id);
   const responseItem = responseItems.get(action.id);
+  const responseIsComplete = responseItem?.resolutionStatus === 'resolved' || responseItem?.resolutionStatus === 'community_answered';
+  useEffect(() => {
+    if (!isSingleContentRequest || !responseItem?.creatorReplyText?.trim() || responseItem.creatorReplyAssessment || responseIsComplete || checkedReplyWorkflows.current.has(responseItem.workflowId)) return;
+    checkedReplyWorkflows.current.add(responseItem.workflowId);
+    setCheckingInlineReply(true); setInlineDraftError(null);
+    void assessCreatorReply(videoId, responseItem.workflowId)
+      .then(() => onWorkflowUpdated())
+      .catch((error) => setInlineDraftError(error instanceof Error ? error.message : 'Could not review the creator reply.'))
+      .finally(() => setCheckingInlineReply(false));
+  }, [isSingleContentRequest, onWorkflowUpdated, responseIsComplete, responseItem?.creatorReplyAssessment, responseItem?.creatorReplyText, responseItem?.workflowId, videoId]);
   const createInlineDraft = async (regenerate = false) => {
     if (!responseItem || draftingInline) return;
     setDraftingInline(true); setInlineDraftError(null);
@@ -388,6 +408,20 @@ function CategoryActionCarousel({ actions, onOpen, creatorReplies, responseItems
     finally { setDraftingInline(false); }
   };
   const copyInlineDraft = async () => { await navigator.clipboard?.writeText(inlineDraft); setInlineCopied(true); window.setTimeout(() => setInlineCopied(false), 1600); };
+  const undoInlineResolution = async () => {
+    if (!responseItem || undoingInlineReply) return;
+    setUndoingInlineReply(true); setInlineDraftError(null);
+    try { await setResponseWorkflowResolution(videoId, responseItem.workflowId, false); onWorkflowUpdated(); }
+    catch (error) { setInlineDraftError(error instanceof Error ? error.message : 'Could not reopen this follow-up.'); }
+    finally { setUndoingInlineReply(false); }
+  };
+  const resolveInlineResponse = async () => {
+    if (!responseItem || resolvingInlineReply) return;
+    setResolvingInlineReply(true); setInlineDraftError(null);
+    try { await setResponseWorkflowResolution(videoId, responseItem.workflowId, true); onWorkflowUpdated(); }
+    catch (error) { setInlineDraftError(error instanceof Error ? error.message : 'Could not mark this request as resolved.'); }
+    finally { setResolvingInlineReply(false); }
+  };
   const cardContent = <>
     <span className="category-feature-icon"><LearnTraceIcon name={icon} size={31} /></span>
     <div className="category-feature-copy">
@@ -395,7 +429,7 @@ function CategoryActionCarousel({ actions, onOpen, creatorReplies, responseItems
       <strong>{displayActionTitle(action)}</strong>
       <span className={`category-feature-evidence ${normalizedCourseQuestion ? 'normalized-course-question' : ''} ${isSingleContentRequest ? 'full-request-visible' : ''}`}>{quote ? normalizedCourseQuestion || `“${quote}”` : action.summary}</span>
       {isSingleContentRequest && creatorReply && <details className="inline-creator-reply"><summary><span>{creatorReply.avatarUrl ? <img src={creatorReply.avatarUrl} alt="" onError={(event) => { event.currentTarget.style.display = 'none'; }} /> : <i>{(creatorReply.authorName || 'C').charAt(0).toUpperCase()}</i>}</span>{creatorReply.authorName || 'Video creator'} replied <b>⌄</b></summary><p>{creatorReply.text}</p></details>}
-      <span className="category-feature-footer"><span><LearnTraceIcon name="users" size={16} /> {action.supportingSignalCount} learner{action.category === 'curriculum_navigation' ? (action.supportingSignalCount === 1 ? ' asked this' : 's asked something similar') : (action.supportingSignalCount === 1 ? '' : 's')} {action.category === 'content_opportunity' ? 'requested this' : action.category === 'curriculum_navigation' ? '' : 'raised this'}</span>{isSingleContentRequest && responseItem?.resolutionStatus !== 'resolved' ? <button type="button" className="inline-draft-reply" onClick={() => void createInlineDraft()}>{draftingInline ? 'Writing a draft…' : responseItem?.hasDraft ? 'View saved acknowledgement' : 'Draft acknowledgement ✦'}</button> : <em>{isSingleContentRequest ? 'Shown inline' : action.category === 'curriculum_navigation' ? 'See original comment →' : 'View evidence →'}</em>}</span>
+      <span className="category-feature-footer"><span><LearnTraceIcon name="users" size={16} /> {action.supportingSignalCount} learner{action.category === 'curriculum_navigation' ? (action.supportingSignalCount === 1 ? ' asked this' : 's asked something similar') : (action.supportingSignalCount === 1 ? '' : 's')} {action.category === 'content_opportunity' ? 'requested this' : action.category === 'curriculum_navigation' ? '' : 'raised this'}</span>{isSingleContentRequest && checkingInlineReply ? <em>Checking creator reply…</em> : isSingleContentRequest && responseIsComplete ? <span className="inline-reply-complete">Creator reply addressed this · <button type="button" onClick={() => void undoInlineResolution()} disabled={undoingInlineReply}>{undoingInlineReply ? 'Reopening…' : 'Undo'}</button></span> : isSingleContentRequest && responseItem ? <span className="inline-response-actions"><button type="button" className="inline-draft-reply" onClick={() => void createInlineDraft()}>{draftingInline ? 'Writing a draft…' : responseItem?.hasDraft ? 'View saved acknowledgement' : responseItem.creatorReplyAssessment ? 'Draft a better acknowledgement ✦' : 'Draft acknowledgement ✦'}</button><button type="button" className="inline-mark-resolved" disabled={resolvingInlineReply} onClick={() => void resolveInlineResponse()}>{resolvingInlineReply ? 'Saving…' : 'Mark as resolved'}</button></span> : <em>{isSingleContentRequest ? 'Shown inline' : action.category === 'curriculum_navigation' ? 'See original comment →' : 'View evidence →'}</em>}</span>
       {isSingleContentRequest && inlineDraft && <div className="inline-draft-card"><label htmlFor={`inline-reply-${action.id}`}>AI-generated acknowledgement <small>Review before posting</small></label><textarea id={`inline-reply-${action.id}`} value={inlineDraft} onChange={(event) => setInlineDraft(event.target.value)} maxLength={900} /><div><button type="button" onClick={() => void createInlineDraft(true)}>Regenerate</button><button type="button" onClick={() => void copyInlineDraft()}>{inlineCopied ? 'Copied' : 'Copy reply'}</button></div></div>}
       {isSingleContentRequest && inlineDraftError && <p className="inline-draft-error">{inlineDraftError}</p>}
     </div>
@@ -426,6 +460,7 @@ function InsightDrawer({ action, response, creatorReply, videoId, onClose, onWor
   const [checkingCreatorReply, setCheckingCreatorReply] = useState(false);
   const [updatingWorkflow, setUpdatingWorkflow] = useState(false);
   const [responseError, setResponseError] = useState<string | null>(null);
+  const automaticReplyCheckStarted = useRef(false);
   const learning = action.category === 'learning';
   const feedback = action.category === 'actionable_feedback';
   const positive = action.category === 'positive_signal';
@@ -460,9 +495,17 @@ function InsightDrawer({ action, response, creatorReply, videoId, onClose, onWor
     void getTopicDiagnosis(videoId, action.concept, action.evidenceIds)
       .then((result) => {
         if (!active) return;
+        const meetsVisibleTopicThreshold = action.supportingSignalCount >= 3;
         setDiagnosisChecked(true);
-        setDiagnosisEligible(Boolean(result.eligible));
-        setDiagnosisMessage(result.message || result.supportingText || null);
+        // Creator-facing semantic topics can combine several strict audit
+        // clusters. If the card visibly has 3+ verified comments, a stale or
+        // overly conservative pre-check must not hide the interpretation CTA.
+        setDiagnosisEligible(Boolean(result.eligible) || meetsVisibleTopicThreshold);
+        setDiagnosisMessage(result.eligible
+          ? result.message || result.supportingText || null
+          : meetsVisibleTopicThreshold
+            ? 'There is enough recurring evidence for LearnTrace to interpret this learner difficulty.'
+            : result.message || result.supportingText || null);
         setDiagnosis(result.interpretation || null);
       })
       .catch(() => {
@@ -475,7 +518,7 @@ function InsightDrawer({ action, response, creatorReply, videoId, onClose, onWor
         }
       });
     return () => { active = false; };
-  }, [action.id, action.concept, learning, videoId]);
+  }, [action.id, action.concept, action.evidenceIds, action.supportingSignalCount, learning, videoId]);
   const countText = learning
     ? `${action.supportingSignalCount} learner${action.supportingSignalCount === 1 ? '' : 's'} ${repeated ? 'asked something similar' : 'asked this'}`
     : feedback || positive
@@ -539,6 +582,14 @@ function InsightDrawer({ action, response, creatorReply, videoId, onClose, onWor
     catch (error) { setResponseError(error instanceof Error ? error.message : 'Creator-reply review is temporarily unavailable.'); }
     finally { setCheckingCreatorReply(false); }
   };
+  useEffect(() => {
+    const responseIsOpen = response?.resolutionStatus === 'needs_response' || response?.resolutionStatus === 'unclear';
+    if (!responseIsOpen || !response?.creatorReplyText?.trim() || response.creatorReplyAssessment || automaticReplyCheckStarted.current) return;
+    automaticReplyCheckStarted.current = true;
+    void checkCreatorReply();
+  }, [response?.creatorReplyAssessment, response?.creatorReplyText, response?.resolutionStatus, response?.workflowId]);
+  const replyReviewPending = Boolean(response?.creatorReplyText?.trim() && !response.creatorReplyAssessment
+    && (response.resolutionStatus === 'needs_response' || response.resolutionStatus === 'unclear'));
   return <><button className="insight-drawer-backdrop" aria-label="Close insight details" onClick={onClose} /><aside className={`insight-drawer ${feedback ? 'drawer-feedback' : positive ? 'drawer-positive' : ''}`} role="dialog" aria-modal="true" aria-label={`${displayActionTitle(action)} details`}>
     <button type="button" className="drawer-close" onClick={onClose} aria-label="Close insight details"><LearnTraceIcon name="close" size={20} /></button>
     <span className={`insight-kind drawer-status ${hasInterpretation ? 'status-strong' : repeated ? 'status-repeated' : ''}`}>{hasInterpretation && <LearnTraceIcon name="flame" size={15} />}{repeated && !hasInterpretation && <LearnTraceIcon name="messages" size={15} />}{status}</span><h3>{displayActionTitle(action)}</h3>
@@ -558,9 +609,9 @@ function InsightDrawer({ action, response, creatorReply, videoId, onClose, onWor
       {(response?.creatorReplyText || creatorReply) && <div className="creator-reply-context">
         <div className="creator-reply-header">{(response?.creatorReplyAvatarUrl || creatorReply?.avatarUrl) && <img src={response?.creatorReplyAvatarUrl || creatorReply?.avatarUrl || ''} alt="" onError={(event) => { event.currentTarget.style.display = 'none'; event.currentTarget.nextElementSibling?.classList.remove('is-hidden'); }} />}<span className={response?.creatorReplyAvatarUrl || creatorReply?.avatarUrl ? 'creator-avatar-fallback is-hidden' : 'creator-avatar-fallback'} aria-hidden="true">{(response?.creatorReplyAuthorName || creatorReply?.authorName || 'C').trim().charAt(0).toUpperCase()}</span><b>{response?.creatorReplyAuthorName || creatorReply?.authorName || 'Video creator'} replied in this thread</b></div>
         <p>{response?.creatorReplyText || creatorReply?.text}</p>
-        {response?.creatorReplyAssessment ? <small className={`creator-reply-assessment assessment-${response.creatorReplyAssessment.outcome}`}><b>{response.creatorReplyAssessment.outcome === 'answered' ? 'Creator reply addresses this question.' : response.creatorReplyAssessment.outcome === 'partial' ? 'Partly addressed.' : 'Not yet addressed.'}</b> {response.creatorReplyAssessment.reason}</small> : response && response.resolutionStatus !== 'resolved' && <div className="creator-reply-check-row"><span>Reply not reviewed</span><button type="button" className="text-button creator-reply-check" disabled={checkingCreatorReply} onClick={() => void checkCreatorReply()}>{checkingCreatorReply ? 'Checking…' : 'Check with AI ✦'}</button><small>1 AI request</small></div>}
+        {response?.creatorReplyAssessment ? <small className={`creator-reply-assessment assessment-${response.creatorReplyAssessment.outcome}`}><b>{response.creatorReplyAssessment.outcome === 'answered' ? 'Creator reply addresses this question.' : response.creatorReplyAssessment.outcome === 'partial' ? 'Partly addressed.' : 'Not yet addressed.'}</b> {response.creatorReplyAssessment.reason}</small> : response && response.resolutionStatus !== 'resolved' && <div className="creator-reply-check-row"><span>{checkingCreatorReply ? 'Reviewing creator reply with AI…' : 'Creator reply review unavailable'}</span></div>}
       </div>}
-      {response && (response.resolutionStatus === 'resolved' || response.resolutionStatus === 'community_answered' ? <div className="response-complete"><p className="response-responded">{response.resolutionStatus === 'community_answered' ? 'Answered by the community' : response.resolutionSource === 'creator_reply_ai_confirmed' ? 'Creator reply addresses this question.' : 'Marked resolved by you.'}</p>{!response.creatorReplyText && <p>{response.communityReplyText || 'You marked this conversation as resolved.'}</p>}<button type="button" className="text-button" onClick={() => void resolveResponse(false)}>Undo</button></div> : response.resolutionStatus === 'snoozed' ? <div className="response-complete response-snoozed"><p className="response-responded">Snoozed</p><p>This follow-up is set aside and is visible in the channel Snoozed queue.</p><button type="button" className="text-button" disabled={updatingWorkflow} onClick={() => void toggleSnooze()}>{updatingWorkflow ? 'Restoring…' : 'Restore to open'}</button></div> : <><div className="response-review"><span>{response.resolutionStatus === 'unclear' ? 'REVIEW NEEDED' : 'NEEDS RESPONSE'}</span><p>Suggested response: <b>{response.suggestedResponseType}</b></p></div><button type="button" className="drawer-generate-button" disabled={draftingReply} onClick={() => void draftReply(response.primaryDraftMode)}>{draftingReply ? 'Writing a draft…' : response.cachedDraftModes?.includes(response.primaryDraftMode) ? `View saved ${draftLabel(response.primaryDraftMode).toLocaleLowerCase()}` : `${response.creatorReplyAssessment && response.creatorReplyAssessment.outcome !== 'answered' && response.primaryDraftMode === 'individual_reply' ? 'Draft a better reply' : draftLabel(response.primaryDraftMode)} ✦`}</button>{response.hasPhase6Interpretation && <aside className="response-followup"><strong>Optional next step</strong><span>This issue may benefit from another worked example or short follow-up explanation.</span></aside>}{replyDraft && activeDraftMode && <div className="reply-draft-card"><label className="ai-draft-label" htmlFor="reply-draft">AI-generated {activeDraftMode === 'public_clarification' ? 'clarification' : 'draft reply'} <small>{draftDescription(activeDraftMode)}</small></label><textarea id="reply-draft" className="reply-draft" value={replyDraft} onChange={(event) => setReplyDraft(event.target.value)} maxLength={900} /><div className="reply-draft-actions"><button type="button" onClick={() => void draftReply(activeDraftMode, true)}>Regenerate</button><button type="button" onClick={() => void copyReplyDraft()}>{replyCopied ? 'Copied' : activeDraftMode === 'public_clarification' ? 'Copy clarification' : 'Copy reply'}</button></div></div>}<div className="video-response-actions"><button type="button" className="text-button drawer-workflow-action drawer-workflow-snooze" disabled={updatingWorkflow} onClick={() => void toggleSnooze()}>{updatingWorkflow ? 'Saving…' : 'Snooze'}</button><button type="button" className="text-button response-resolve drawer-workflow-action drawer-workflow-resolve" disabled={updatingWorkflow} onClick={() => void resolveResponse(true)}>{updatingWorkflow ? 'Saving…' : 'Mark as resolved'}</button></div></>) }
+      {response && (response.resolutionStatus === 'resolved' || response.resolutionStatus === 'community_answered' ? <div className="response-complete"><p className="response-responded">{response.resolutionStatus === 'community_answered' ? 'Answered by the community' : response.resolutionSource === 'creator_reply_ai_confirmed' ? 'Creator reply addresses this question.' : 'Marked resolved by you.'}</p>{!response.creatorReplyText && <p>{response.communityReplyText || 'You marked this conversation as resolved.'}</p>}<button type="button" className="text-button" onClick={() => void resolveResponse(false)}>Undo</button></div> : response.resolutionStatus === 'snoozed' ? <div className="response-complete response-snoozed"><p className="response-responded">Snoozed</p><p>This follow-up is set aside and is visible in the channel Snoozed queue.</p><button type="button" className="text-button" disabled={updatingWorkflow} onClick={() => void toggleSnooze()}>{updatingWorkflow ? 'Restoring…' : 'Restore to open'}</button></div> : replyReviewPending ? <div className="response-review"><span>CHECKING CREATOR REPLY</span><p>LearnTrace is checking whether the existing reply already addresses this follow-up.</p></div> : <><div className="response-review"><span>{response.resolutionStatus === 'unclear' ? 'REVIEW NEEDED' : 'NEEDS RESPONSE'}</span><p>Suggested response: <b>{response.suggestedResponseType}</b></p></div><button type="button" className="drawer-generate-button" disabled={draftingReply} onClick={() => void draftReply(response.primaryDraftMode)}>{draftingReply ? 'Writing a draft…' : response.cachedDraftModes?.includes(response.primaryDraftMode) ? `View saved ${draftLabel(response.primaryDraftMode).toLocaleLowerCase()}` : `${response.creatorReplyAssessment && response.creatorReplyAssessment.outcome !== 'answered' ? response.primaryDraftMode === 'individual_reply' ? 'Draft a better reply' : 'Draft a better clarification' : draftLabel(response.primaryDraftMode)} ✦`}</button>{response.hasPhase6Interpretation && <aside className="response-followup"><strong>Optional next step</strong><span>This issue may benefit from another worked example or short follow-up explanation.</span></aside>}{replyDraft && activeDraftMode && <div className="reply-draft-card"><label className="ai-draft-label" htmlFor="reply-draft">AI-generated {activeDraftMode === 'public_clarification' ? 'clarification' : 'draft reply'} <small>{draftDescription(activeDraftMode)}</small></label><textarea id="reply-draft" className="reply-draft" value={replyDraft} onChange={(event) => setReplyDraft(event.target.value)} maxLength={900} /><div className="reply-draft-actions"><button type="button" onClick={() => void draftReply(activeDraftMode, true)}>Regenerate</button><button type="button" onClick={() => void copyReplyDraft()}>{replyCopied ? 'Copied' : activeDraftMode === 'public_clarification' ? 'Copy clarification' : 'Copy reply'}</button></div></div>}<div className="video-response-actions"><button type="button" className="text-button drawer-workflow-action drawer-workflow-snooze" disabled={updatingWorkflow} onClick={() => void toggleSnooze()}>{updatingWorkflow ? 'Saving…' : 'Snooze'}</button><button type="button" className="text-button response-resolve drawer-workflow-action drawer-workflow-resolve" disabled={updatingWorkflow} onClick={() => void resolveResponse(true)}>{updatingWorkflow ? 'Saving…' : 'Mark as resolved'}</button></div></>) }
       {responseError && <p className="drawer-diagnosis-error">{responseError}</p>}
     </section>}
     <details className="drawer-trust"><summary><LearnTraceIcon name="info" size={16} /> Why this is showing</summary><p>{course ? courseTrustText : trustText}</p></details>

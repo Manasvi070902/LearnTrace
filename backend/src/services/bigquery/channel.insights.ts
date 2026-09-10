@@ -211,7 +211,7 @@ export async function getChannelOverview(channelId: string) {
   // intentionally groups related workflows into fewer creator-facing tasks.
   const totals = (key: ChannelOverviewKey) => breakdowns[key].reduce((sum, item) => sum + item.value, 0);
   const cards = [{ key: 'difficulties' as const, label: 'Learner questions', value: totals('difficulties') }, { key: 'requests' as const, label: 'Content requests', value: totals('requests') }, { key: 'strengths' as const, label: 'Teaching strengths', value: totals('strengths') }, { key: 'response' as const, label: 'Needs response', value: totals('response') }].filter((card) => card.value > 0);
-  return { ...result, overview: { ...result.overview, cards, breakdowns }, crossVideoPatterns, channelActionQueue };
+  return { ...result, clusteringVersion: CLUSTERING_VERSION, overview: { ...result.overview, cards, breakdowns }, crossVideoPatterns, channelActionQueue };
 }
 
 /** Stored video identities for immediate access when they fall outside the current YouTube page. */
@@ -232,7 +232,8 @@ export async function getStoredChannelVideos(channelId: string) {
 export async function getChannelInsights(videoIds: string[]) {
   if (!videoIds.length) return { videos: new Map<string, ChannelVideoInsight>(), overview: { analyzedVideos: 0, cards: [] as Array<{ key: string; label: string; value: number }> }, concepts: [] as Array<{ concept: string; videos: number; learners: number }> };
   const table = (name: string) => `\`${process.env.GOOGLE_CLOUD_PROJECT_ID}.${process.env.BIGQUERY_DATASET}.${name}\``;
-  const [rows] = await getBigQueryClient().query({ query: `
+  const [summaryResult, analysisResult] = await Promise.all([
+    getBigQueryClient().query({ query: `
     WITH
       ids AS (SELECT video_id FROM UNNEST(@video_ids) video_id),
       comments AS (
@@ -259,29 +260,47 @@ export async function getChannelInsights(videoIds: string[]) {
       ),
       analyzed_videos AS (
         SELECT DISTINCT video_id FROM latest_analysis WHERE row_number = 1
-      ),
-      learning AS (
-        SELECT video_id, COUNT(*) patterns
-        FROM latest_analysis
-        WHERE row_number = 1 AND is_learning_signal = TRUE
-        GROUP BY video_id
-      ),
-      requests AS (SELECT COUNT(*) value FROM latest_analysis WHERE row_number = 1 AND intent = 'content_request'),
-      strengths AS (SELECT COUNT(*) value FROM latest_analysis WHERE row_number = 1 AND intent IN ('praise', 'positive_signal'))
+      )
     SELECT
       ids.video_id,
       EXISTS(SELECT 1 FROM analyzed_videos WHERE analyzed_videos.video_id = ids.video_id) analyzed,
       IFNULL(comments.conversations, 0) conversations,
-      IFNULL(learning.patterns, 0) patterns,
-      IFNULL(needs.needs_response, 0) needs_response,
-      (SELECT value FROM requests) content_requests,
-      (SELECT value FROM strengths) teaching_strengths
+      IFNULL(needs.needs_response, 0) needs_response
     FROM ids
     LEFT JOIN comments USING(video_id)
-    LEFT JOIN learning USING(video_id)
-    LEFT JOIN needs USING(video_id)`, params: { video_ids: videoIds, prompt_version: PROMPT_VERSION, clustering_version: CLUSTERING_VERSION }, types: { video_ids: ['STRING'] }, location: process.env.BIGQUERY_LOCATION });
+    LEFT JOIN needs USING(video_id)`, params: { video_ids: videoIds, prompt_version: PROMPT_VERSION }, types: { video_ids: ['STRING'] }, location: process.env.BIGQUERY_LOCATION }),
+    getBigQueryClient().query({ query: `
+      WITH latest_analysis AS (
+        SELECT a.*, ROW_NUMBER() OVER (PARTITION BY a.video_id, a.comment_id ORDER BY a.analyzed_at DESC) row_number
+        FROM ${table(TABLE_NAMES.COMMENT_ANALYSIS)} a
+        WHERE a.video_id IN UNNEST(@video_ids) AND a.prompt_version = @prompt_version
+      )
+      SELECT a.video_id, a.comment_id, a.intent, a.is_learning_signal, a.canonical_question, a.concept,
+        a.confusion_strength, a.confidence, a.reason, a.model_name, a.prompt_version,
+        CAST(a.analyzed_at AS STRING) analyzed_at, c.comment_text, c.is_reply
+      FROM latest_analysis a
+      LEFT JOIN ${table(TABLE_NAMES.COMMENTS)} c USING(video_id, comment_id)
+      WHERE a.row_number = 1
+    `, params: { video_ids: videoIds, prompt_version: PROMPT_VERSION }, types: { video_ids: ['STRING'] }, location: process.env.BIGQUERY_LOCATION }),
+  ]);
+  const rows = summaryResult[0] || [];
+  const dispositionCounts = new Map(videoIds.map((videoId) => [videoId, { learning: 0, requests: 0, strengths: 0 }]));
+  for (const row of analysisResult[0] || []) {
+    const counts = dispositionCounts.get(row.video_id);
+    if (!counts) continue;
+    const disposition = deriveProductDisposition({ ...row, comment_text: row.comment_text || '', is_reply: Boolean(row.is_reply) });
+    if (disposition === 'learning') counts.learning++;
+    if (disposition === 'content_opportunity') counts.requests++;
+    if (disposition === 'positive_signal') counts.strengths++;
+  }
   const videos = new Map<string, ChannelVideoInsight>(); let analyzedVideos = 0; let difficulties = 0; let needsResponse = 0; let contentRequests = 0; let strengths = 0;
-  for (const row of rows || []) { const analyzed = Boolean(row.analyzed); const item = { videoId: row.video_id, analyzed, conversations: Number(row.conversations), learningPatterns: Number(row.patterns), needsResponse: Number(row.needs_response) }; videos.set(item.videoId, item); if (analyzed) { analyzedVideos++; difficulties += item.learningPatterns; needsResponse += item.needsResponse; contentRequests = Number(row.content_requests || 0); strengths = Number(row.teaching_strengths || 0); } }
+  for (const row of rows) {
+    const analyzed = Boolean(row.analyzed);
+    const counts = dispositionCounts.get(row.video_id) || { learning: 0, requests: 0, strengths: 0 };
+    const item = { videoId: row.video_id, analyzed, conversations: Number(row.conversations), learningPatterns: counts.learning, needsResponse: Number(row.needs_response) };
+    videos.set(item.videoId, item);
+    if (analyzed) { analyzedVideos++; difficulties += item.learningPatterns; needsResponse += item.needsResponse; contentRequests += counts.requests; strengths += counts.strengths; }
+  }
   const cards = [{ key: 'difficulties', label: 'Learner questions', value: difficulties }, { key: 'requests', label: 'Content requests', value: contentRequests }, { key: 'strengths', label: 'Teaching strengths', value: strengths }, { key: 'response', label: 'Needs response', value: needsResponse }].filter((card) => card.value > 0);
   return { videos, overview: { analyzedVideos, cards }, concepts: [] as Array<{ concept: string; videos: number; learners: number }> };
 }

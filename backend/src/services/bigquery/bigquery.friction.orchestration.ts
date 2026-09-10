@@ -206,6 +206,7 @@ export async function analyzeFrictionForVideo(videoId: string): Promise<Friction
     return {
       comment_id: signal.comment_id,
       canonical_question: question,
+      source_text: signal.comment_text || undefined,
       concept: signal.concept,
       intent: signal.intent,
       embedding: stored.embedding,
@@ -252,7 +253,7 @@ export async function analyzeFrictionForVideo(videoId: string): Promise<Friction
     }
   }
 
-  await storeClusters(clusterRows);
+  await storeClusters(clusterRows, { videoId, clusteringVersion: CLUSTERING_VERSION });
   if (memberRows.length > 0) {
     await storeClusterMembers(memberRows);
   }
@@ -320,7 +321,7 @@ export async function analyzeFrictionForVideo(videoId: string): Promise<Friction
     scoring_version: SCORING_VERSION,
   }));
 
-  await storeFrictionScores(frictionRows);
+  await storeFrictionScores(frictionRows, { videoId, scoringVersion: SCORING_VERSION });
 
   return {
     videoId,

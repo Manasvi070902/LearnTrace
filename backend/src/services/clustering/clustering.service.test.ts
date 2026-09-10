@@ -11,10 +11,12 @@ describe('Clustering Service', () => {
       question: string,
       embedding: number[],
       confusion = 0.5,
-      confidence = 0.8
+      confidence = 0.8,
+      sourceText?: string,
     ): QuestionEmbedding => ({
       comment_id: id,
       canonical_question: question,
+      source_text: sourceText,
       concept: 'Test Concept',
       embedding,
       confusion_strength: confusion,
@@ -155,6 +157,26 @@ describe('Clustering Service', () => {
       expect(clusters).toHaveLength(1);
       expect(clusters[0].members).toHaveLength(2);
       expect(countRecurringQuestionClusters(clusters)).toBe(1);
+    });
+
+    it('does not merge different hashing questions when a broad canonical label is misleading', () => {
+      // The first two are genuine Counter/collections paraphrases. The latter
+      // questions live in the same lesson, but ask about ASCII indexing and
+      // collision definitions. Even very close vectors cannot override their
+      // different learner wording.
+      const questions = [
+        createQuestion('counter-one', 'Question about hashing', [1, 0], .6, .9, 'Can Counter from collections be used for map hashing?'),
+        createQuestion('counter-two', 'Question about hashing', [.99, .01], .6, .9, 'We could also use Counter from Collection for map hashing, right?'),
+        createQuestion('ascii', 'Question about hashing', [.995, .005], .6, .9, 'Why did he put ++ after a when converting a character to an array index?'),
+        createQuestion('collision', 'Question about hashing', [.998, .002], .6, .9, 'If two keys have the same value, is that a hash collision?'),
+      ];
+
+      const clusters = clusterQuestions(questions, .7);
+      expect(clusters.map((cluster) => cluster.members.map((member) => member.comment_id).sort()).sort((a, b) => a.join().localeCompare(b.join()))).toEqual([
+        ['ascii'],
+        ['collision'],
+        ['counter-one', 'counter-two'],
+      ]);
     });
 
     it('does not collapse same-topic explanation, application, and reconstruction questions without cohesion', () => {

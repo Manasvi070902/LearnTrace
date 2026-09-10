@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { CommentAnalysisRow } from '../bigquery/bigquery.analysis';
 import { ClusterEvidenceRow, ClusterRow, FrictionRow } from '../bigquery/bigquery.friction';
 import { normalizeConcept } from '../clustering/concept-normalizer';
@@ -137,6 +138,19 @@ function praiseContainsConstructiveFeedback(signal: AudienceSignal): boolean {
   return hasActionableFeedbackLanguage(normalizedText(signal.comment_text));
 }
 
+/**
+ * Preserve a vague request, but do not present it as a concrete topic. This
+ * catches short replies such as "please add it" where neither the model's
+ * canonical question nor the learner gives the creator enough context to act.
+ */
+function isUnspecifiedContentRequest(signal: AudienceSignal): boolean {
+  const canonical = normalizedText(signal.canonical_question || '');
+  const genericCanonical = !canonical || [
+    'learner request', 'content request', 'content opportunity', 'requested coverage', 'more content',
+  ].includes(canonical);
+  return genericCanonical && Array.from(normalizedText(signal.comment_text)).length <= 24;
+}
+
 /** Assign exactly one creator-facing disposition to every analyzed record. */
 export function deriveProductDisposition(signal: AudienceSignal): ProductDisposition {
   // This comes first intentionally.  The comment text is stronger evidence
@@ -199,6 +213,9 @@ function signalTheme(signal: AudienceSignal, disposition: ProductDisposition): s
   // A broad Phase 4 concept such as "Content Opportunity" is useful for
   // categorisation but must not merge different requests into one action.
   // The canonical request preserves the actual thing the learner asked for.
+  if (disposition === 'content_opportunity' && isUnspecifiedContentRequest(signal)) {
+    return 'unspecified learner request';
+  }
   if (disposition === 'content_opportunity' && signal.canonical_question?.trim()) {
     return signal.canonical_question.trim();
   }
@@ -249,14 +266,19 @@ function makeAction(
   };
   const template = templates[category as Exclude<CreatorAction['category'], 'learning'>];
   const positive = category === 'positive_signal';
+  const unspecifiedRequest = category === 'content_opportunity' && theme === 'unspecified learner request';
   const summary = positive
     ? signals.length === 1
       ? `One comment specifically praised ${theme.toLocaleLowerCase()}.`
       : `Several comments specifically praised ${theme.toLocaleLowerCase()}.`
-    : template.summary;
+    : unspecifiedRequest
+      ? 'A learner asked for something to be added, but did not specify what.'
+      : template.summary;
   const suggestedAction = positive
     ? `Continue using ${theme.toLocaleLowerCase()} in future lessons.`
-    : template.action;
+    : unspecifiedRequest
+      ? 'Review the surrounding conversation or ask the learner to clarify what they would like added.'
+      : template.action;
   return {
     // Some individual feedback cards intentionally share the neutral display
     // theme “presentation feedback”. Their grouping key includes the actual
@@ -268,7 +290,7 @@ function makeAction(
     suggestedAction,
     evidenceStrength: strength,
     supportingSignalCount: signals.length,
-    concept: positive ? theme : signals[0]?.concept || null,
+    concept: positive || unspecifiedRequest ? theme : signals[0]?.concept || null,
     canonicalQuestion: signals[0]?.canonical_question || null,
     learningFrictionScore: null,
     learningFrictionStatus: null,
@@ -293,7 +315,7 @@ function groupSignals(signals: AudienceSignal[], disposition: CreatorAction['cat
     // A neutral display fallback is not evidence that unrelated feedback
     // comments form a repeated theme.
     const genericContentRequest = disposition === 'content_opportunity'
-      && ['learner request', 'content request', 'content opportunity', 'requested coverage', 'more content'].includes(normalizedTheme);
+      && ['learner request', 'content request', 'content opportunity', 'requested coverage', 'more content', 'unspecified learner request'].includes(normalizedTheme);
     const key = (disposition === 'actionable_feedback' && normalizedTheme === 'presentation feedback') || genericContentRequest
       ? `${normalizedTheme}:${normalizedText(signal.comment_text) || signal.comment_id}`
       : normalizedTheme;
@@ -380,8 +402,34 @@ export function getSemanticTopicSimilarityThreshold(): number {
   return Number.isFinite(configured) ? Math.min(0.95, Math.max(0.5, configured)) : 0.66;
 }
 
+const TOPIC_EVIDENCE_STOP_WORDS = new Set([
+  'what', 'which', 'when', 'where', 'who', 'why', 'how', 'does', 'this', 'that', 'these', 'those',
+  'the', 'and', 'for', 'from', 'with', 'into', 'about', 'video', 'used', 'use', 'using', 'anyone',
+  'know', 'can', 'could', 'should', 'would', 'get', 'guide', 'tool', 'app', 'application', 'program',
+  'software', 'question', 'help', 'please', 'thanks', 'thank', 'really', 'just', 'also', 'have',
+  'evidence',
+]);
+
+function topicWord(word: string): string {
+  return word.length > 4 && word.endsWith('s') ? word.slice(0, -1) : word;
+}
+
 function conceptWords(cluster: LearningCluster): Set<string> {
   return new Set(normalizedText(`${cluster.primary_concept} ${cluster.cluster_label}`).split(' ').filter((word) => word.length > 2 && !['what', 'which', 'when', 'where', 'who', 'why', 'how', 'does', 'this', 'that', 'the', 'and', 'for', 'from', 'with', 'into', 'about', 'video', 'used', 'use', 'using', 'anyone', 'know', 'can', 'get', 'guide', 'tool', 'app', 'application', 'program', 'software', 'question', 'help'].includes(word)));
+}
+
+/**
+ * Evidence wording is a stronger topic guard than a model-generated cluster
+ * label. It prevents an overly broad canonical question such as "hashing"
+ * from combining Counter, ASCII-indexing, and collision questions.
+ */
+function evidenceFocusWords(cluster: LearningCluster): Set<string> {
+  return new Set(
+    cluster.evidence
+      .flatMap((item) => normalizedText(item.comment_text).split(' '))
+      .map(topicWord)
+      .filter((word) => word.length > 2 && !TOPIC_EVIDENCE_STOP_WORDS.has(word)),
+  );
 }
 
 function clusterVector(cluster: LearningCluster, embeddings: ReadonlyMap<string, number[]>): number[] | null {
@@ -421,12 +469,22 @@ function clustersCanShareTopic(left: LearningCluster, right: LearningCluster, em
   );
   const leftSpecificWords = new Set([...leftWords].filter((word) => !sharedBroadConceptWords.has(word)));
   const rightSpecificWords = new Set([...rightWords].filter((word) => !sharedBroadConceptWords.has(word)));
-  const hasSharedTopicWord = [...rightSpecificWords].some((word) => leftSpecificWords.has(word));
+  const labelHasSharedTopicWord = [...rightSpecificWords].some((word) => leftSpecificWords.has(word));
+  const leftEvidenceWords = evidenceFocusWords(left);
+  const rightEvidenceWords = evidenceFocusWords(right);
+  const evidenceHasSharedTopicWord = [...rightEvidenceWords].some((word) => leftEvidenceWords.has(word));
+  // If original evidence is available on both sides, it must support the
+  // merge. Labels are AI-generated summaries and can be too broad on their
+  // own; raw wording preserves the actual learner need.
+  const hasSharedTopicWord = leftEvidenceWords.size && rightEvidenceWords.size
+    ? evidenceHasSharedTopicWord
+    : labelHasSharedTopicWord;
   const sharesToolIdentificationPurpose = questionPurpose(left) === 'tool_identification'
     && questionPurpose(right) === 'tool_identification';
   // Labels with no extractable specific words retain the conservative
   // embedding path; otherwise, avoid merging on a broad concept alone.
-  const subjectIsUnknown = !leftSpecificWords.size && !rightSpecificWords.size;
+  const subjectIsUnknown = !leftSpecificWords.size && !rightSpecificWords.size
+    && !leftEvidenceWords.size && !rightEvidenceWords.size;
   if (!hasSharedTopicWord && !sharesToolIdentificationPurpose && !subjectIsUnknown) return false;
   const leftVector = clusterVector(left, embeddings);
   const rightVector = clusterVector(right, embeddings);
@@ -458,9 +516,16 @@ function mergeTopicMembers(members: LearningCluster[]): LearningCluster {
     const memberTotal = members.reduce((sum, member) => sum + member.question_count, 0);
     const questionCount = evidenceByCommentId.size || memberTotal;
     const weight = Math.max(1, memberTotal);
+  const topicIdentity = createHash('sha256')
+    .update(members.map((member) => member.cluster_id).sort().join('\u0000'))
+    .digest('hex')
+    .slice(0, 24);
   return {
       ...anchor,
-      cluster_id: `merged:${normalizeConcept(anchor.primary_concept)}`,
+      // Topic identity follows exact source clusters, not only a broad
+      // concept. Two separate topics named "hashing" must not overwrite one
+      // another in the persisted response workflow.
+      cluster_id: `merged:${topicIdentity}`,
       question_count: questionCount,
       average_confusion_strength: members.reduce((sum, member) => sum + member.average_confusion_strength * member.question_count, 0) / weight,
       average_confidence: members.reduce((sum, member) => sum + member.average_confidence * member.question_count, 0) / weight,

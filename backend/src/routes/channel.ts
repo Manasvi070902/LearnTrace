@@ -39,6 +39,7 @@ router.get('/:channelId/videos', async (req: Request, res: Response) => {
         },
       })),
       overview: overview.overview,
+      clusteringVersion: overview.clusteringVersion,
       crossVideoPatterns: overview.crossVideoPatterns,
       channelActionQueue: overview.channelActionQueue,
       storedVideos,
